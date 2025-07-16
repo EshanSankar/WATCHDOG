@@ -36,15 +36,19 @@ set_camera_view(
 )  # set camera view
 
 # Adding assets
-add_reference_to_stage(usd_path="file:///home/sdl1/test_xarm6_with_gripper.usd", prim_path="/World/xarm6_with_gripper") # robot
-simulation_app.update()
+add_reference_to_stage(usd_path="assets/xarm6_with_gripper.usd", prim_path="/World/xarm6_with_gripper") # robot
 arm = Articulation(prim_paths_expr="/World/xarm6_with_gripper", name="xarm6") # create an articulation object
 
-add_reference_to_stage(usd_path="file:///home/sdl1/rectangle.usd", prim_path="/World/prism") # custom rectangular prism object
+# loading ot2: absolute path since the usda files reference other files and isaac sim needs to explicitly know where to look
+add_reference_to_stage(usd_path="file:///home/sdl1/isaacsim/sdl1-digital-twin/assets/ot2/OT2_inst_no_light.usda", prim_path="/World/ot2")
+ot2 = Articulation(prim_paths_expr="/World/ot2", name="ot2")
+
+add_reference_to_stage(usd_path="assets/rectangle.usd", prim_path="/World/prism") # custom rectangular prism object
 prism = SingleXFormPrim(prim_path="/World/prism", name="prism")
 
 # set the initial poses of the arm and the car so they don't collide BEFORE the simulation starts
-arm.set_world_poses(positions=np.array([[2.0, 0.0, 0.0]]) / get_stage_units())
+arm.set_world_poses(positions=np.array([[3.0, 3.0, 0.0]]) / get_stage_units())
+ot2.set_world_poses(positions=np.array([[0.0, 0.80, 0.0]]) / get_stage_units(), orientations=np.array([[0.7071068, 0.7071068, 0, 0]]))
 prism.set_world_pose(position=np.array([[0.0, -3.0, 0.0]]) / get_stage_units())
 
 simulation_app.update()
@@ -62,21 +66,21 @@ try:
 			("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
 			("Context", "isaacsim.ros2.bridge.ROS2Context"),
 			("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-			("SubscribeJointState", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
-			("ArticulationController", "isaacsim.core.nodes.IsaacArticulationController")
+			("SubscribeJointStateArm", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
+			("ArticulationControllerArm", "isaacsim.core.nodes.IsaacArticulationController")
 		],
 		og.Controller.Keys.CONNECT: [
-			("OnPlaybackTick.outputs:tick", "SubscribeJointState.inputs:execIn"),
-			("OnPlaybackTick.outputs:tick", "ArticulationController.inputs:execIn"),
-			("SubscribeJointState.outputs:effortCommand", "ArticulationController.inputs:effortCommand"),
-			("SubscribeJointState.outputs:jointNames", "ArticulationController.inputs:jointNames"),
-			("SubscribeJointState.outputs:positionCommand", "ArticulationController.inputs:positionCommand"),
-			("SubscribeJointState.outputs:velocityCommand", "ArticulationController.inputs:velocityCommand"),
-			("Context.outputs:context", "SubscribeJointState.inputs:context")
+			("OnPlaybackTick.outputs:tick", "SubscribeJointStateArm.inputs:execIn"),
+			("OnPlaybackTick.outputs:tick", "ArticulationControllerArm.inputs:execIn"),
+			("SubscribeJointStateArm.outputs:effortCommand", "ArticulationControllerArm.inputs:effortCommand"),
+			("SubscribeJointStateArm.outputs:jointNames", "ArticulationControllerArm.inputs:jointNames"),
+			("SubscribeJointStateArm.outputs:positionCommand", "ArticulationControllerArm.inputs:positionCommand"),
+			("SubscribeJointStateArm.outputs:velocityCommand", "ArticulationControllerArm.inputs:velocityCommand"),
+			("Context.outputs:context", "SubscribeJointStateArm.inputs:context")
 		],
 		og.Controller.Keys.SET_VALUES: [
-			("SubscribeJointState.inputs:topicName", "/xarm/joint_states"),
-			("ArticulationController.inputs:targetPrim", "/World/xarm6_with_gripper/xarm6_with_gripper/root_joint")
+			("SubscribeJointStateArm.inputs:topicName", "/xarm/joint_states"),
+			("ArticulationControllerArm.inputs:targetPrim", "/World/xarm6_with_gripper/xarm6_with_gripper/root_joint")
 		],
 	},
 	)
@@ -95,7 +99,7 @@ class Sub(Node):
 		self.ros_world = World(stage_units_in_meters=1.0)
 		self.ros_world.scene.add_default_ground_plane()
 		self.sub = self.create_subscription(PoseStamped, "/Current_OBJ_position_1", self.cb, 10) # topic from FoundationPoseROS2
-		self.cmd_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1]) # init w to 1, to prevent zero norm quaternion
+		self.cmd_pose = np.array([0.0, 0.0, 0.0, 1, 0.0, 0.0, 0.0]) # init w to 1, to prevent zero norm quaternion
 	def cb(self, msg):
 		self.cmd_pose[0], self.cmd_pose[1], self.cmd_pose[2] = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
 		self.cmd_pose[3], self.cmd_pose[4], self.cmd_pose[5], self.cmd_pose[6] = msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z
@@ -112,7 +116,10 @@ class Sub(Node):
 					if reset_needed:
 						self.ros_world.reset()
 						reset_needed = False
-					self.object.set_world_pose(position=np.multiply(self.cmd_pose[:3], 2), orientation=self.cmd_pose[3:]) # update object pose
+					# y position: 0.24 is an offset; 0.0375 is half the object's width
+					# 0.05738 = height of OT2 base from table
+					#self.object.set_world_pose(position=np.array([-0.06, -self.cmd_pose[1] - 0.36 - 0.18 + 0.375, 0.05738]), orientation=np.array([0.7071068, 0.7071068, 0, 0]))
+					self.object.set_world_pose(position=np.array([-0.06, -self.cmd_pose[1] - 0.24 + 0.0375, 0.05738]), orientation=np.array([0.7071068, 0.7071068, 0, 0]))
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()

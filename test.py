@@ -48,12 +48,19 @@ action = ArticulationAction(joint_positions=np.array([0.0, 0.0]), joint_indices=
 ot2.apply_action(action)
 simulation_app.update()
 
+# 'PrismaticJointMiddleBar', 'PrismaticJointPipetteHolder', 'PrismaticJointLeftPipette', 'PrismaticJointRightPipette']
+#  more negative = more front,	more negative = more left,    more negative = more down,   more negative = more down
+# [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
+# pipette dims: 80x130
+
 class Sub(Node):
 	def __init__(self):
 		super().__init__("pose_subscriber")
 		self.timeline = omni.timeline.get_timeline_interface()
 		self.ros_world = World(stage_units_in_meters=1.0)
 		self.ros_world.scene.add_default_ground_plane()
+		self.c = 0
+		self.e = 0
 	def run_simulation(self):
 		self.timeline.play()
 		reset_needed = False
@@ -67,8 +74,14 @@ class Sub(Node):
 					if reset_needed:
 						self.ros_world.reset()
 						reset_needed = False
-					print(ot2.num_dof)
 					print(ot2.dof_names)
+					# if self.c < 1000:
+					# 	self.pose = np.add(self.pose, -0.001)
+					# 	ot2.set_joint_positions(positions = self.pose, joint_indices = np.array([0, 1, 2, 3]))
+					# 	self.c +=1 
+					self.e -= 0.0001
+					ot2.set_joint_positions(positions = np.array([0, 0, self.e, -0.01719081]), joint_indices = np.array([0, 1, 2, 3]))
+					print(ot2.get_joint_positions())
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()

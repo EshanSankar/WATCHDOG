@@ -44,14 +44,42 @@ simulation_app.update()
 ot2 = SingleArticulation(prim_path="/World/ot2", name="ot2")
 ot2.initialize()
 simulation_app.update()
-action = ArticulationAction(joint_positions=np.array([0.0, 0.0]), joint_indices=np.array([0, 1]))
-ot2.apply_action(action)
-simulation_app.update()
 
 # 'PrismaticJointMiddleBar', 'PrismaticJointPipetteHolder', 'PrismaticJointLeftPipette', 'PrismaticJointRightPipette']
 #  more negative = more front,	more negative = more left,    more negative = more down,   more negative = more down
 # [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
 # pipette dims: 80x130
+
+try:
+	og.Controller.edit(
+	{"graph_path": "/World/ActionGraph", "evaluator_name": "execution"},
+	{
+		og.Controller.Keys.CREATE_NODES: [
+			("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+			("Context", "isaacsim.ros2.bridge.ROS2Context"),
+			("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+			("SubscribeJointStateArm", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
+			("ArticulationControllerArm", "isaacsim.core.nodes.IsaacArticulationController")
+		],
+		og.Controller.Keys.CONNECT: [
+			("OnPlaybackTick.outputs:tick", "SubscribeJointStateArm.inputs:execIn"),
+			("OnPlaybackTick.outputs:tick", "ArticulationControllerArm.inputs:execIn"),
+			("SubscribeJointStateArm.outputs:effortCommand", "ArticulationControllerArm.inputs:effortCommand"),
+			("SubscribeJointStateArm.outputs:jointNames", "ArticulationControllerArm.inputs:jointNames"),
+			("SubscribeJointStateArm.outputs:positionCommand", "ArticulationControllerArm.inputs:positionCommand"),
+			("SubscribeJointStateArm.outputs:velocityCommand", "ArticulationControllerArm.inputs:velocityCommand"),
+			("Context.outputs:context", "SubscribeJointStateArm.inputs:context")
+		],
+		og.Controller.Keys.SET_VALUES: [
+			("SubscribeJointStateArm.inputs:topicName", "/ot2/joint_states"),
+			("ArticulationControllerArm.inputs:targetPrim", "/World/ot2/ot2/root_joint")
+		],
+	},
+	)
+except Exception as e:
+	print(e)
+
+simulation_app.update()
 
 class Sub(Node):
 	def __init__(self):
@@ -59,8 +87,6 @@ class Sub(Node):
 		self.timeline = omni.timeline.get_timeline_interface()
 		self.ros_world = World(stage_units_in_meters=1.0)
 		self.ros_world.scene.add_default_ground_plane()
-		self.c = 0
-		self.e = 0
 	def run_simulation(self):
 		self.timeline.play()
 		reset_needed = False
@@ -74,19 +100,11 @@ class Sub(Node):
 					if reset_needed:
 						self.ros_world.reset()
 						reset_needed = False
-					print(ot2.dof_names)
-					# if self.c < 1000:
-					# 	self.pose = np.add(self.pose, -0.001)
-					# 	ot2.set_joint_positions(positions = self.pose, joint_indices = np.array([0, 1, 2, 3]))
-					# 	self.c +=1 
-					self.e -= 0.0001
-					ot2.set_joint_positions(positions = np.array([0, 0, self.e, -0.01719081]), joint_indices = np.array([0, 1, 2, 3]))
-					print(ot2.get_joint_positions())
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()
 
 if __name__ == "__main__":
 	rclpy.init()
-	subscriber = Sub() # will extend to multiple objects in main subscriber
+	subscriber = Sub()
 	subscriber.run_simulation()

@@ -51,7 +51,7 @@ ot2.initialize()
 simulation_app.update()
 
 xarm.set_world_poses(positions=np.array([[-0.74, 0.03, 0.0]]) / get_stage_units(), orientations=np.array([[-0.4480736, 0, 0, 0.8939967]]))
-ot2.set_world_poses(positions=np.array([[0.0, 0.80, 0.0]]) / get_stage_units(), orientations=np.array([[0.7071068, 0.7071068, 0, 0]]))
+ot2.set_world_pose(position=np.array([[0.0, 0.80, 0.0]]) / get_stage_units(), orientation=np.array([[0.7071068, 0.7071068, 0, 0]]))
 simulation_app.update()
 
 # skipping front door
@@ -70,22 +70,24 @@ class SimulatedWorld(Node):
 		#self.ot2_joint_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 		self.ot2_joint_targets = np.array([0.0, 0.0])
 		self.xarm_sub = self.create_subscription(JointState, "/sim_xarm/target_joint_states", self.xarm_cb, 10)
-		self.xarm_joint_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # last element is relative
+		self.xarm_joint_targets = np.array([2.8653342723846436,-0.08610617369413376, -0.4979282319545746,4.3559088706970215, 1.3179675340652466, 1.0210156440734863, 0])
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
 		# /sim_robot/joint_states: [[joint1, ..., jointN], [joint1_goal, ..., jointN_goal]]
 		self.ot2_joints = ["PrismaticJointMiddleBar", "PrismaticJointPipetteHolder"]
-		self.xarm_joints = [String(joint) for joint in xarm.dof_names]
+		self.ot2_joint_indices = np.array([0, 1])
+		self.xarm_joints = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "drive_joint"]
+		self.xarm_joint_indices = np.array([0, 1, 2, 3, 4, 5, 6])
 		#self.ot2_dim = [MultiArrayDimension(label="joints", size=2, stride=10), MultiArrayDimension(label="goals", size=5, stride=5)]
 		self.ot2_dim = [MultiArrayDimension(label="joints", size=2, stride=4), MultiArrayDimension(label="goals", size=2, stride=2)]
 		self.xarm_dim = [MultiArrayDimension(label="joints", size=2, stride=14), MultiArrayDimension(label="goals", size=7, stride=7)]
 		self.safety = 1
-		self.safety_sub = self.create_subscription(String, "/safety_checker/status", self.safety_cb, 10)
+		self.safety_sub = self.create_subscription(String, "/safety_checker/status_int", self.safety_cb, 10)
 	def ot2_cb(self, msg):
-		self.ot2_joint_targets = np.array(msg.position)
+		self.ot2_joint_targets = msg.position
 		self.ot2_reached_goal = False
 	def xarm_cb(self, msg):
-		self.xarm_joint_targets = np.array(msg.position)[:7] if msg.position[7] == 0.0 else np.add(np.array(msg.position)[:7], self.get_joint_positions(xarm))
+		self.xarm_joint_targets = np.array(msg.position)[:7] if msg.position[7] == 0.0 else np.add(np.array(msg.position)[:7], xarm.get_joint_positions()[0][:7])
 		self.xarm_reached_goal = False
 	def safety_cb(self, msg):
 		self.safety = int(msg.data)
@@ -104,10 +106,10 @@ class SimulatedWorld(Node):
 					if reset_needed:
 						self.ros_world.reset()
 						reset_needed = False
-					ot2.set_joint_position_targets(self.ot2_joint_targets)
-					xarm.set_joint_position_targets(self.xarm_joint_targets)
-					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((self.get_joint_positions(ot2)[1:3], self.ot2_joint_targets))))
-					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((self.get_joint_positions(xarm), self.xarm_joint_targets))))
+					ot2.apply_action(ArticulationAction(joint_positions=self.ot2_joint_targets, joint_indices=self.ot2_joint_indices))
+					xarm.set_joint_position_targets(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
+					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:2], self.ot2_joint_targets))))
+					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:7], self.xarm_joint_targets))))
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()

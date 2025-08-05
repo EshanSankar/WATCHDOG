@@ -62,6 +62,7 @@ class Assets():
 		with open(f"{ORCHESTRATOR_PATH}/xarm_workflow.json", "r") as f:
 			workflow = json.load(f)
 			for asset in workflow["global_config"]["labware"]:
+				print(asset)
 				add_reference_to_stage(usd_path=f"{asset_path}/{asset}.usd", prim_path=f"/World/{asset}")
 				self.assets[f"{asset}"] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset}", name=f"{asset}")]
 				self.assets[f"{asset}"][1].set_world_pose(position=np.array([[
@@ -130,7 +131,7 @@ class SimulatedWorld(Node):
 		self.asset_cmd_poses = {}
 		self.asset_initial_poses = {}
 		for asset in self.assets:
-			self.asset_subs[f"{asset}"] = self.create_subscription(PoseStamped, f"/asset_position_{self.assets[f"asset"][0]}", lambda msg: self.asset_cb(msg, f"{asset}"), 10)
+			self.asset_subs[f"{asset}"] = self.create_subscription(PoseStamped, f"/asset_position_{self.assets[{asset}][0]}", lambda msg: self.asset_cb(msg, f"{asset}"), 10)
 			self.asset_cmd_poses[f"{asset}"] = np.concatenate(self.assets[f"{asset}"][1].get_world_pose()[0], self.assets[f"{asset}"][1].get_world_pose()[1], axis=1)
 			self.asset_initial_poses[f"{asset}"] = self.asset_cmd_poses[f"{asset}"].copy()
 			self.asset_pubs[f"{asset}"] = self.create_publisher(Float32MultiArray, f"/sim_{asset}/pose", 10)

@@ -23,7 +23,7 @@ from sensor_msgs.msg import JointState
 from pxr import Gf
 import omni.graph.core as og
 import json
-from real_to_digital import Assets
+#from real_to_digital import Assets
 
 # preparing the scene
 assets_root_path = get_assets_root_path()
@@ -40,7 +40,7 @@ set_camera_view(
 
 # loading assets
 ASSET_PATH = "file:///home/sdl1/isaacsim/sdl1-digital-twin/assets"
-ORCHESTRATOR_PATH = "file:///home/sdl1/ros2_projects/digital_twin/src/catalyst-OT2-xArm"
+ORCHESTRATOR_PATH = "/home/sdl1/ros2_projects/digital_twin/src/catalyst-OT2-xArm"
 # loading xarm
 add_reference_to_stage(usd_path=f"{ASSET_PATH}/xarm6_with_gripper.usd", prim_path="/World/xarm6_with_gripper") # robot
 xarm = Articulation(prim_paths_expr="/World/xarm6_with_gripper", name="xarm6") # create an articulation object
@@ -69,6 +69,26 @@ OT2_COORDS = {
 # [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
 # pipette dims: 80x130
 
+
+class Assets():
+	def __init__(self, asset_path):
+		self.assets = {}
+		with open(f"{ORCHESTRATOR_PATH}/xarm_workflow.json", "r") as f:
+			workflow = json.load(f)
+			for asset in workflow["global_config"]["labware"]:
+				print(asset)
+				#reactor_plate wash_station tip_rack electrode_tip_rack solution_rack
+
+
+				#add_reference_to_stage(usd_path=f"{asset_path}/{asset}.usd", prim_path=f"/World/{asset}")
+				#self.assets[f"{asset}"] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset}", name=f"{asset}")]
+				#self.assets[f"{asset}"][1].set_world_pose(position=np.array([[
+				#	OT2_COORDS[asset["slot"]][0] + OT2_SLOT_DIMS["x"],
+				#	OT2_COORDS[asset["slot"]][1] + OT2_SLOT_DIMS["y"],
+				#	OT2_BASE_HEIGHT]]) / get_stage_units())
+
+
+
 class SimulatedWorld(Node):
 	def __init__(self):
 		super().__init__("pose_subscriber")
@@ -94,21 +114,21 @@ class SimulatedWorld(Node):
 		self.safety = 1
 		self.safety_sub = self.create_subscription(String, "/safety_checker/status_int", self.safety_cb, 10)
 		# object pose subscribers
-		self.assets = Assets()
+		self.assets = Assets(ASSET_PATH)
 		simulation_app.update()
 		self.asset_subs = {}
 		self.asset_pubs = {}
 		self.asset_cmd_poses = {}
 		self.asset_initial_poses = {}
-		for asset in self.assets:
-			self.asset_subs[f"{asset}"] = self.create_subscription(PoseStamped, f"/asset_position_{self.assets[f"asset"][0]}", lambda msg: self.asset_cb(msg, f"{asset}"), 10)
-			self.asset_cmd_poses[f"{asset}"] = np.concatenate(self.assets[f"{asset}"][1].get_world_pose()[0], self.assets[f"{asset}"][1].get_world_pose()[1], axis=1)
-			self.asset_initial_poses[f"{asset}"] = self.asset_cmd_poses[f"{asset}"].copy()
-			self.asset_pubs[f"{asset}"] = self.create_publisher(Float32MultiArray, f"/sim_{asset}/pose", 10)
+		#for asset in self.assets:
+		#	self.asset_subs[f"{asset}"] = self.create_subscription(PoseStamped, f"/asset_position_{self.assets[{asset}][0]}", lambda msg: self.asset_cb(msg, f"{asset}"), 10)
+		#	self.asset_cmd_poses[f"{asset}"] = np.concatenate(self.assets[f"{asset}"][1].get_world_pose()[0], self.assets[f"{asset}"][1].get_world_pose()[1], axis=1)
+		#	self.asset_initial_poses[f"{asset}"] = self.asset_cmd_poses[f"{asset}"].copy()
+		#	self.asset_pubs[f"{asset}"] = self.create_publisher(Float32MultiArray, f"/sim_{asset}/pose", 10)
 	def asset_cb(self, msg, asset):
-		self.asset_cmd_poses[f"{asset}"][0], self.asset_cmd_poses[f"{asset}"][1], self.asset_cmd_poses[f"{asset}"][2] = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
-		self.asset_cmd_poses[f"{asset}"][3], self.asset_cmd_poses[f"{asset}"][4], self.asset_cmd_poses[f"{asset}"][5], self.asset_cmd_poses[f"{asset}"][6] = msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z
-		self.asset_cmd_poses[f"{asset}"] = np.substract(self.asset_cmd_poses[f"{asset}"], self.asset_initial_poses[f"{asset}"])
+		self.asset_cmd_poses[asset][0], self.asset_cmd_poses[f"{asset}"][1], self.asset_cmd_poses[f"{asset}"][2] = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
+		self.asset_cmd_poses[asset][3], self.asset_cmd_poses[f"{asset}"][4], self.asset_cmd_poses[f"{asset}"][5], self.asset_cmd_poses[f"{asset}"][6] = msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z
+		self.asset_cmd_poses[asset] = np.substract(self.asset_cmd_poses[asset], self.asset_initial_poses[asset])
 	def ot2_cb(self, msg):
 		self.ot2_joint_targets = msg.position
 		self.ot2_reached_goal = False
@@ -135,12 +155,13 @@ class SimulatedWorld(Node):
 					# move the robots
 					ot2.apply_action(ArticulationAction(joint_positions=self.ot2_joint_targets, joint_indices=self.ot2_joint_indices))
 					xarm.set_joint_position_targets(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
+					print(f"Moved xArm: {self.xarm_joint_targets}")
 					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:2], self.ot2_joint_targets))))
 					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:7], self.xarm_joint_targets))))
 					# mirror asset positions from real-world
-					for asset in self.assets:
-						self.assets[f"{asset}"][1].set_world_pose(position=self.asset_cmd_poses[f"{asset}"][:3], orientation=self.asset_cmd_poses[f"{asset}"][3:])
-						self.asset_pubs[f"{asset}"].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[f"{asset}"]))
+					#for asset in self.assets:
+					#	self.assets[f"{asset}"][1].set_world_pose(position=self.asset_cmd_poses[f"{asset}"][:3], orientation=self.asset_cmd_poses[f"{asset}"][3:])
+					#	self.asset_pubs[f"{asset}"].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[f"{asset}"]))
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()

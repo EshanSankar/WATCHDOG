@@ -1,9 +1,8 @@
-# TO BE RUN SEPARATELY FROM ISAAC SIM; THIS FILE IS JUST HERE FOR NOW
-
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, Int8 # -1, 0, 1
 import numpy as np
+from real_to_digital import Assets
 
 class SafetyChecker(Node):
     def __init__(self):
@@ -21,6 +20,15 @@ class SafetyChecker(Node):
         self.status = Int8(data=1) # 0: continue current action, 1: safe, -1: unsafe
         self.XARM_JOINT_THRESHOLD = 0.05
         self.OT2_JOINT_THRESHOLD = 0.05
+        self.assets = Assets()
+        self.asset_subs = {}
+        self.asset_poses = {}
+        for asset in self.assets:
+            self.asset_subs[f"{asset}"] = self.create_subscription(Float32MultiArray, f"/sim_{asset}/pose", lambda msg: self.asset_cb(msg, f"{asset}"), 10)
+            self.asset_poses[f"{asset}"] = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    def asset_cb(self, msg, asset):
+        self.asset_poses[f"{asset}"][0], self.asset_cmd_poses[f"{asset}"][1], self.asset_cmd_poses[f"{asset}"][2] = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
+        self.asset_poses[f"{asset}"][3], self.asset_cmd_poses[f"{asset}"][4], self.asset_cmd_poses[f"{asset}"][5], self.asset_cmd_poses[f"{asset}"][6] = msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z
     def xarm_cb(self, msg):
         self.xarm_joints = msg.data[:7]
         self.xarm_targets = msg.data[7:]

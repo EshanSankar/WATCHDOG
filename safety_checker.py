@@ -8,14 +8,15 @@ import numpy as np
 class SafetyChecker(Node):
     def __init__(self):
         super().__init__("safety_checker")
+        self.timer = self.create_timer(0.1, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
         self.ot2_sub = self.create_subscription(Float32MultiArray, "/sim_ot2/joint_states", self.ot2_cb, 10)
-        self.xarm_joints = np.array(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        self.xarm_targets = np.array(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        # self.ot2_joints = np.array(0.0, 0.0, 0.0, 0.0, 0.0)
-        # self.ot2_targets = np.array(0.0, 0.0, 0.0, 0.0, 0.0)
-        self.ot2_joints = np.array(0.0, 0.0)
-        self.ot2_targets = np.array(0.0, 0.0)
+        self.xarm_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.xarm_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        # self.ot2_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+        # self.ot2_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+        self.ot2_joints = np.array([0.0, 0.0])
+        self.ot2_targets = np.array([0.0, 0.0])
         self.status_pub = self.create_publisher(Int8, "safety_checker/status", 10)
         self.status = Int8(data=1) # 0: continue current action, 1: safe, -1: unsafe
         self.XARM_JOINT_THRESHOLD = 0.05
@@ -29,7 +30,7 @@ class SafetyChecker(Node):
         self.ot2_joints = msg.data[:2]
         self.ot2_targets = msg.data[2:]
     def check_safety(self):
-        rclpy.spin_once(self, timeout_sec=0.1)
+        self.get_logger().info("RUNNING!")
         self.status.data = 1
         # Implement safety checks here
         if False: #if safety is false
@@ -45,7 +46,7 @@ class SafetyChecker(Node):
 def main():
     rclpy.init()
     safety_checker = SafetyChecker()
-    safety_checker.check_safety()
+    rclpy.spin(safety_checker)
     safety_checker.destroy_node()
     rclpy.shutdown()
 

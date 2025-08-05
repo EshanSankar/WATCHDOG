@@ -10,6 +10,7 @@ class SafetyChecker(Node):
     def __init__(self):
         super().__init__("safety_checker")
         self.timer = self.create_timer(0.1, self.check_safety)
+        self.timer = self.create_timer(0.1, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
         self.ot2_sub = self.create_subscription(Float32MultiArray, "/sim_ot2/joint_states", self.ot2_cb, 10)
         self.xarm_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -48,6 +49,7 @@ class SafetyChecker(Node):
         # Check collisions of robots and assets
         return 1
     def check_safety(self):
+        self.get_logger().info("RUNNING!")
         self.status.data = 1
         # Implement safety checks here
         self.status = self.check_collision()

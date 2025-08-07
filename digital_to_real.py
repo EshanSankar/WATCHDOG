@@ -45,6 +45,7 @@ add_reference_to_stage(usd_path=f"{ASSET_PATH}/xarm6_with_gripper.usd", prim_pat
 xarm = Articulation(prim_paths_expr="/World/xarm6_with_gripper", name="xarm6") # create an articulation object
 # loading ot2: absolute path since the usda files reference other files and isaac sim needs to explicitly know where to look
 add_reference_to_stage(usd_path=f"{ASSET_PATH}/ot2/OT2_inst_no_light.usda", prim_path="/World/ot2")
+xarm_gripper_center = SingleXFormPrim("/World/xarm6_with_gripper/xarm6_with_gripper/link_tcp")
 simulation_app.update()
 world.reset()
 simulation_app.update()
@@ -54,7 +55,7 @@ simulation_app.update()
 xarm.set_world_poses(positions=np.array([[-0.74, 0.03, 0.0]]) / 1.0, orientations=np.array([[-0.4480736, 0, 0, 0.8939967]]))
 ot2.set_world_pose(position=np.array([[0.0, 0.80, 0.0]]) / 1.0, orientation=np.array([[0.7071068, 0.7071068, 0, 0]]))
 simulation_app.update()
-OT2_BASE_HEIGHT = 0.05738
+OT2_BASE_HEIGHT = 0.054
 OT2_SLOT_DIMS = {"x": 0.04, "y": 0.025}
 OT2_COORDS = {
 	1: [0.0, 0.0], 2: [0.13, 0.0], 3: [0.26, 0.0],
@@ -98,12 +99,17 @@ class SimulatedWorld(Node):
 		# /sim_robot/joint_states: [[joint1, ..., jointN], [joint1_goal, ..., jointN_goal]]
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
+		self.xarm_gripper_position_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/gripper_position", 10)
+		self.xarm_control_joints = np.array([2.865, -0.0861, -0.4979, 4.3559, 1.3179, 1.021, 0.5, 0.5])
+		self.xarm_control_sub = self.create_subscription(JointState, "/xarm/joint_states", self.xarm_control_cb, 10)
 		ot2.set_joint_positions(positions=self.ot2_joint_targets, joint_indices=self.ot2_joint_indices)
 		xarm.set_joint_positions(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
 		self.ot2_dim = [MultiArrayDimension(label="joints", size=2, stride=6), MultiArrayDimension(label="goals", size=3, stride=3)]
 		self.xarm_dim = [MultiArrayDimension(label="joints", size=2, stride=16), MultiArrayDimension(label="goals", size=8, stride=8)]
+		self.xarm_gripper_dim = [MultiArrayDimension(label="pose", size=7, stride=7)]
 		self.asset_dim = [MultiArrayDimension(label="pose", size=7, stride=7)]
 		self.safety = 1
+		self.c = 0
 		self.safety_sub = self.create_subscription(String, "/safety_checker/status_int", self.safety_cb, 10)
 		# object pose subscribers
 		self.assets = LoadAssets()
@@ -124,17 +130,22 @@ class SimulatedWorld(Node):
 	def ot2_cb(self, msg):
 		self.ot2_joint_targets = msg.position
 	def xarm_cb(self, msg):
-		# msg: [joint1, joint2, joint3, joint4, joint5, joint6, left_finger, right_finger, relative]
-		self.xarm_joint_targets = np.concatenate((np.array(msg.position)[:6] if msg.position[8] == 0.0 else np.add(np.array(msg.position)[:6], xarm.get_joint_positions()[0][:6]), np.array(msg.position)[6:8]))
+		# msg: [joint1, joint2, joint3, joint4, joint5, joint6, relative] OR [left_finger, right_finger]
+		if len(msg.position) == 7:
+			self.xarm_joint_targets = np.concatenate((np.array(msg.position)[:6] if msg.position[6] == 0.0 else np.add(np.array(msg.position)[:6], xarm.get_joint_positions()[0][:6]), self.xarm_joint_targets[6:]))
+		else:
+			self.xarm_joint_targets = np.concatenate((self.xarm_joint_targets[:6], np.array(msg.position)))
 	def safety_cb(self, msg):
 		self.safety = int(msg.data)
+	def xarm_control_cb(self, msg):
+		self.xarm_control_joints = np.array(msg.position)
 	def run_simulation(self):
 		self.timeline.play()
 		reset_needed = False
 		while simulation_app.is_running():
+			self.c += 1
+			print(self.c)
 			rclpy.spin_once(self, timeout_sec=0.0)
-			if self.safety == -1:
-				continue # pause the sim if unsafe
 			self.ros_world.step(render=True)
 			simulation_app.update()
 			if self.ros_world.is_stopped() and not reset_needed:
@@ -143,14 +154,24 @@ class SimulatedWorld(Node):
 					if reset_needed:
 						self.ros_world.reset()
 						reset_needed = False
+					if self.safety == -1:
+					#if self.c > 400 and self.c < 600: (for testing)
+						# barebones teleoperation
+						xarm.set_joint_positions(positions=self.xarm_control_joints, joint_indices=self.xarm_joint_indices[:6])
+						for asset_type, _ in self.assets.items():
+							self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])
+							self.asset_pubs[asset_type].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[asset_type]))
+						self.xarm_joint_targets[:6] = self.xarm_control_joints
+						continue
 					# move the robots
 					for i in range(3): # individually move the OT2 DOF
 						ot2.apply_action(ArticulationAction(joint_positions=self.ot2_joint_targets[i:i+1], joint_indices=self.ot2_joint_indices[i:i+1]))
 						self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:3], self.ot2_joint_targets))))
 					xarm.set_joint_position_targets(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
-					print(xarm.get_joint_positions())
+					#print(xarm_gripper_center.get_world_pose())
 					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:3], self.ot2_joint_targets))))
 					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:6], xarm.get_joint_positions()[0][10:], self.xarm_joint_targets))))
+					self.xarm_gripper_position_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_gripper_dim, data_offset=0), data=np.concatenate((xarm_gripper_center.get_world_pose()[0], xarm_gripper_center.get_world_pose()[1]))))
 					# mirror asset positions from real-world
 					for asset_type, _ in self.assets.items():
 						self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])

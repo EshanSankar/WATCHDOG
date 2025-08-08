@@ -156,7 +156,7 @@ class SimulatedWorld(Node):
 						reset_needed = False
 					if self.safety == -1:
 					#if self.c > 400 and self.c < 600: (for testing)
-						# barebones teleoperation
+						# teleoperation #TODO: add gripper control
 						xarm.set_joint_positions(positions=self.xarm_control_joints, joint_indices=self.xarm_joint_indices[:6])
 						for asset_type, _ in self.assets.items():
 							self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])

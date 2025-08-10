@@ -14,7 +14,7 @@ OT2_COORDS = {
 	4: [0.0, 0.09], 5: [0.13, 0.09], 6: [0.26, 0.09],
 	7: [0.0, 0.18], 8: [0.13, 0.18], 9: [0.26, 0.18],
 	10: [0.0, 0.27], 11: [0.13, 0.27], 12: [0.26, 0.27]}
-OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
+OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -3.0635, -0.0425, 0.065]}#"vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
 
 def LoadAssets(asset_path=ASSET_PATH):
 	assets = {}
@@ -49,14 +49,13 @@ class SafetyChecker(Node):
         self.timer = self.create_timer(0.01, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
         self.xarm_gripper_sub = self.create_subscription(JointState, "/sim_xarm/gripper_position", self.xarm_gripper_cb, 10)
-        self.ot2_pipette_sub = self.create_subscription(JointState, "/sim_ot2/pipette_position", self.ot2_pipette_cb, 10)
         self.ot2_sub = self.create_subscription(Float32MultiArray, "/sim_ot2/joint_states", self.ot2_cb, 10)
         self.xarm_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.xarm_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.xarm_gripper_position = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
-        self.ot2_joints = np.array([0.0, 0.0, 0.0])
-        self.ot2_targets = np.array([0.0, 0.0, -0.025])
-        self.ot2_pipette_position = np.array([0.0, 0.0, 0.0])
+        self.ot2_joints = np.array([0.0, 0.0])
+        self.ot2_targets = np.array([0.0, 0.0])
+        self.ot2_pipette_position = np.array([0.0, 0.0])
         # STATUS INTS: 0: continue current action, 1: safe, -1: unsafe
         self.status_int = 1
         self.status_pub = self.create_publisher(Int8, "/safety_checker/status_int", 10)
@@ -67,8 +66,9 @@ class SafetyChecker(Node):
         self.XARM_JOINT_THRESHOLD = 0.05 # check if xArm is moving
         self.XARM_GRIPPER_THRESHOLD = 0.1 # xArm grasping position
         self.XARM_CARRY_THRESHOLD = 0.1 # xArm carrying
-        self.OT2_JOINT_THRESHOLD = 0.5 # check if OT2 is moving
+        self.OT2_JOINT_THRESHOLD = 0.1 # check if OT2 is moving
         self.OT2_ASSET_POSITION_THRESHOLD = 0.5 # check assets are in correct spots relative to pipette
+        self.OT2_ASSET_OVERLAP_THRESHOLD = 0.2 # check assets are not blocking each other
         self.ASSET_ROTATION_THRESHOLD = 999 # check if assets are oriented properly
         self.assets = LoadAssets()
         self.asset_subs = {}
@@ -78,10 +78,10 @@ class SafetyChecker(Node):
         self.target_asset_ot2 = ""
         self.xarm_carrying = False
         for asset_type, _ in self.assets.items():
-           self.asset_subs[asset_type] = self.create_subscription(Float32MultiArray, f"/sim_{asset_type}/pose",
-                                                                  lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
-           self.initial_asset_poses[asset_type] = np.copy(self.assets[asset_type][1])
-           self.asset_poses[asset_type] = np.copy(self.assets[asset_type][1])
+            self.asset_subs[asset_type] = self.create_subscription(Float32MultiArray, f"/sim_{asset_type}/pose",
+                                                                   lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
+            self.initial_asset_poses[asset_type] = np.copy(self.assets[asset_type][1])
+            self.asset_poses[asset_type] = np.copy(self.assets[asset_type][1])
     
     # Callback functions
     def target_asset_ot2_cb(self, msg):
@@ -96,10 +96,9 @@ class SafetyChecker(Node):
     def xarm_gripper_cb(self, msg):
         self.xarm_gripper_position = msg.data
     def ot2_cb(self, msg):
-        self.ot2_joints = msg.data[:3]
-        self.ot2_targets = msg.data[3:]
-    def ot2_pipette_cb(self, msg):
-        self.ot2_pipette_position = msg.data
+        self.ot2_joints = msg.data[:2]
+        self.ot2_targets = msg.data[2:]
+        self.ot2_pipette_position = np.array([(self.ot2_joints[0]+0.08)/0.737, (self.ot2_joints[1]+0.19)/0.881])
     def xarm_control_cb(self, msg):
         self.xarm_control = 1 if msg.data == 1 else 0
     # Primary functions
@@ -133,15 +132,15 @@ class SafetyChecker(Node):
             for asset_type, _ in self.assets.items():
                 if asset_type == self.target_asset_xarm: # If object is being carried, ensure gripper hasn't dropped it
                     if self.xarm_carrying:
-                        if np.linalg.norm(self.xarm_gripper_position[:3] - self.asset_poses[self.target_asset_xarm][:3]) > self.XARM_CARRY_THRESHOLD:
+                        if np.linalg.norm(np.subtract(self.xarm_gripper_position[:3], self.asset_poses[self.target_asset_xarm][:3])) > self.XARM_CARRY_THRESHOLD:
                             self.status_pub.publish(Int8(data=-1))
                             self.status_int = -1
                             self.xarm_control = 1
                             return
                     continue
                 # Check that remaining objects are in proper positions
-                if (np.linalg.norm(self.asset_poses[asset_type][:3] - self.initial_asset_poses[asset_type][:3]) > self.OT2_ASSET_POSITION_THRESHOLD) or \
-                    (np.linalg.norm(self.asset_poses[asset_type][3:] - self.initial_asset_poses[asset_type][3:]) > self.ASSET_ROTATION_THRESHOLD):
+                if (np.linalg.norm(np.subtract(self.asset_poses[asset_type][:3], self.initial_asset_poses[asset_type][:3])) > self.OT2_ASSET_POSITION_THRESHOLD) or \
+                    (np.linalg.norm(np.subtract(self.asset_poses[asset_type][3:], self.initial_asset_poses[asset_type][3:])) > self.ASSET_ROTATION_THRESHOLD):
                     self.status_pub.publish(Int8(data=-1))
                     self.status_int = -1
                     self.xarm_control = 1
@@ -158,7 +157,7 @@ class SafetyChecker(Node):
                     for asset_type, _ in self.assets.items():
                         if asset_type == self.target_asset_xarm:
                             continue
-                        if ((np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_xarm][:2]) < self.OT2_ASSET_POSITION_THRESHOLD) and
+                        if ((np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_xarm][:2])) < self.OT2_ASSET_POSITION_THRESHOLD) and
                             (self.asset_poses[asset_type][2] > self.asset_poses[self.target_asset_xarm][2])):
                             self.status_pub.publish(Int8(data=-1))
                             self.status_int = -1
@@ -169,8 +168,8 @@ class SafetyChecker(Node):
                     for asset_type, _ in self.assets.items():
                         if asset_type == self.target_asset_xarm:
                             continue
-                        if (np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_xarm][:2]) < self.OT2_ASSET_POSITION_THRESHOLD) or \
-                            ((np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_xarm][:2]) < self.OT2_ASSET_POSITION_THRESHOLD) and
+                        if (np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_xarm][:2])) < self.OT2_ASSET_POSITION_THRESHOLD) or \
+                            ((np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_xarm][:2])) < self.OT2_ASSET_POSITION_THRESHOLD) and
                              (self.asset_poses[asset_type][2] > self.asset_poses[self.target_asset_xarm][2])):
                             self.status_pub.publish(Int8(data=-1))
                             self.status_int = -1
@@ -181,8 +180,8 @@ class SafetyChecker(Node):
                     for asset_type, _ in self.assets.items():
                         if asset_type == self.target_asset_xarm:
                             continue
-                        if (np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_xarm][:2]) < self.OT2_ASSET_POSITION_THRESHOLD) or \
-                            ((np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_xarm][:2]) < self.OT2_ASSET_POSITION_THRESHOLD) and
+                        if (np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_xarm][:2])) < self.OT2_ASSET_POSITION_THRESHOLD) or \
+                            ((np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_xarm][:2])) < self.OT2_ASSET_POSITION_THRESHOLD) and
                              (self.asset_poses[asset_type][2] > self.asset_poses[self.target_asset_xarm][2])):
                             self.status_pub.publish(Int8(data=-1))
                             self.status_int = -1
@@ -207,21 +206,38 @@ class SafetyChecker(Node):
             self.status_pub.publish(Int8(data=0))
             self.status_int = 0
             for asset_type, _ in self.assets.items():
+                self.get_logger().info(f"Checking {asset_type}")
                 if asset_type == self.target_asset_xarm: # If the object is being carried, ignore it
+                    self.get_logger().info(f"Ignoring {asset_type} since it's being carried")
                     continue
-                # Check if assets are aligned with OT2's pipette
-                if (np.linalg.norm(self.asset_poses[asset_type][:2] - self.ot2_pipette_position[:2]) > self.OT2_ASSET_POSITION_THRESHOLD) or \
-                    (np.linalg.norm(self.asset_poses[asset_type][3:] - self.initial_asset_poses[asset_type][3:]) > self.ASSET_ROTATION_THRESHOLD):
-                    self.status_pub.publish(Int8(data=-1))
-                    self.status_int = -1
-                    self.xarm_control = 1
-                    return
-                # If pipette is lowering, check if the below asset is not blocked
-                if self.ot2_joints[2] - self.ot2_targets[2] > self.OT2_JOINT_THRESHOLD:
-                    if asset_type == self.target_asset_ot2:
+                # Check if remaining assets are in correct positions
+                if asset_type != self.target_asset_ot2:
+                    if (np.linalg.norm(np.subtract(self.asset_poses[asset_type][:3], self.initial_asset_poses[asset_type][:3])) > self.OT2_ASSET_POSITION_THRESHOLD) or \
+                        (np.linalg.norm(np.subtract(self.asset_poses[asset_type][3:], self.initial_asset_poses[asset_type][3:])) > self.ASSET_ROTATION_THRESHOLD):
+                        self.get_logger().info(f"OBJECT {self.target_asset_ot2} NOT ALIGNED!!")
+                        self.status_pub.publish(Int8(data=-1))
+                        self.status_int = -1
+                        self.xarm_control = 1
+                        return
+                # Check if target asset is aligned with OT2 pipette
+                else:
+                    if (np.linalg.norm(np.subtract(self.asset_poses[self.target_asset_ot2][:2], self.ot2_pipette_position)) > self.OT2_ASSET_POSITION_THRESHOLD) or \
+                        (np.linalg.norm(np.subtract(self.asset_poses[self.target_asset_ot2][3:], self.initial_asset_poses[self.target_asset_ot2][3:])) > self.ASSET_ROTATION_THRESHOLD):
+                        print(self.ot2_pipette_position)
+                        print(self.asset_poses[self.target_asset_ot2][:2])
+                        self.get_logger().info(f"TARGET {self.target_asset_ot2} NOT ALIGNED!!")
+                        self.status_pub.publish(Int8(data=-1))
+                        self.status_int = -1
+                        self.xarm_control = 1
+                        return
+                # If OT2 has nearly reached position, check if the target asset is not blocked
+                if abs(self.ot2_joints[0] - self.ot2_targets[0]) < self.OT2_JOINT_THRESHOLD + 0.1 or abs(self.ot2_joints[0] - self.ot2_targets[0]) < self.OT2_JOINT_THRESHOLD + 0.1:
+                    # Will eventually make a config for assets that are intentionally on top of others, like vials in vial racks
+                    if asset_type == self.target_asset_ot2 or asset_type == "vial_1" or asset_type == "vial_2":
                         continue
-                    if ((np.linalg.norm(self.asset_poses[asset_type][:2] - self.asset_poses[self.target_asset_ot2][:2]) < self.OT2_ASSET_POSITION_THRESHOLD + 0.2) and
+                    if ((np.linalg.norm(np.subtract(self.asset_poses[asset_type][:2], self.asset_poses[self.target_asset_ot2][:2])) < self.OT2_ASSET_OVERLAP_THRESHOLD) and
                         (self.asset_poses[asset_type][2] > self.asset_poses[self.target_asset_ot2][2])):
+                        self.get_logger().info(f"{self.target_asset_ot2} BLOCKED BY {asset_type}!!")
                         self.status_pub.publish(Int8(data=-1))
                         self.status_int = -1
                         self.xarm_control = 1

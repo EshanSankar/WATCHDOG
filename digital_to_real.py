@@ -72,7 +72,7 @@ OT2_COORDS = {
 #  more negative = more front,	more negative = more left,    more negative = more down,   more negative = more down
 # [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
 # pipette dims: 80x130
-OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
+OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -3.0635, -0.0425, 0.065]}#"vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
 
 def LoadAssets(asset_path=ASSET_PATH):
 	assets = {}
@@ -121,16 +121,16 @@ class SimulatedWorld(Node):
 		self.ros_world = World(stage_units_in_meters=1.0)
 		self.ros_world.scene.add_default_ground_plane()
 		self.ot2_sub = self.create_subscription(JointState, "/sim_ot2/target_joint_states", self.ot2_cb, 10)
-		self.ot2_joint_targets = np.array([0.0, 0.0, 0.0])
+		self.ot2_joint_targets = np.array([0.0, 0.0])
 		self.xarm_sub = self.create_subscription(JointState, "/sim_xarm/target_joint_states", self.xarm_cb, 10)
 		self.xarm_gripper_position_sub = self.create_subscription(Float32, "/orchestrator/gripper_position", self.xarm_gripper_position_cb, 10)
 		self.xarm_gripper_position = 500.0
-		self.ot2_joints = ["PrismaticJointMiddleBar", "PrismaticJointPipetteHolder", "PrismaticJointRightPipette"]
-		self.ot2_joint_indices = np.array([0, 1, 3])
+		self.ot2_joints = ["PrismaticJointMiddleBar", "PrismaticJointPipetteHolder"]
+		self.ot2_joint_indices = np.array([0, 1])
 		self.xarm_joints = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "left_finger_joint", "right_finger_joint"]
 		self.xarm_joint_indices = np.array([0, 1, 2, 3, 4, 5, 10, 11])
 		# gripper joint limits [0, 0.85]; real is [0, 850]
-		self.xarm_joint_targets = np.array([-2.87, -0.2179, -0.7428, -1.13558, 1.4665, -3.1397, 0.3, 0.3])
+		self.xarm_joint_targets = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.3, 0.3])
 		# /sim_robot/joint_states: [[joint1, ..., jointN], [joint1_goal, ..., jointN_goal]]
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
@@ -139,7 +139,7 @@ class SimulatedWorld(Node):
 		self.xarm_control_sub = self.create_subscription(JointState, "/xarm/joint_states", self.xarm_control_cb, 10)
 		ot2.set_joint_positions(positions=self.ot2_joint_targets, joint_indices=self.ot2_joint_indices)
 		xarm.set_joint_positions(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
-		self.ot2_dim = [MultiArrayDimension(label="joints", size=2, stride=6), MultiArrayDimension(label="goals", size=3, stride=3)]
+		self.ot2_dim = [MultiArrayDimension(label="joints", size=2, stride=4), MultiArrayDimension(label="goals", size=2, stride=2)]
 		self.xarm_dim = [MultiArrayDimension(label="joints", size=2, stride=16), MultiArrayDimension(label="goals", size=8, stride=8)]
 		self.xarm_gripper_dim = [MultiArrayDimension(label="pose", size=7, stride=7)]
 		self.asset_dim = [MultiArrayDimension(label="pose", size=7, stride=7)]
@@ -157,13 +157,12 @@ class SimulatedWorld(Node):
 		self.initialized_assets = {}
 		for asset_type, asset in self.assets.items():
 			# will manually skip some stationary assets
-			if asset_type == "tip_rack" or asset_type == "reactor" or asset_type == "vial_rack":
-				continue
-			self.asset_subs[asset_type] = self.create_subscription(PoseStamped, f"/asset_position_{asset_type}", lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
-			self.asset_cmd_poses[asset_type] = np.concatenate((asset[1].get_world_pose()[0], asset[1].get_world_pose()[1]), axis=0)
-			self.asset_initial_poses[asset_type] = self.asset_cmd_poses[asset_type].copy()
+			if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
+				self.asset_subs[asset_type] = self.create_subscription(PoseStamped, f"/asset_position_{asset_type}", lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
+				self.asset_cmd_poses[asset_type] = np.concatenate((asset[1].get_world_pose()[0], asset[1].get_world_pose()[1]), axis=0)
+				self.asset_initial_poses[asset_type] = self.asset_cmd_poses[asset_type].copy()
+				self.initialized_assets[asset_type] = False
 			self.asset_pubs[asset_type] = self.create_publisher(Float32MultiArray, f"/sim_{asset_type}/pose", 10)
-			self.initialized_assets[asset_type] = False
 	def asset_cb(self, msg, asset_type):
 		tracked_pose = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z, msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z])
 		if not self.initialized_assets[asset_type]:
@@ -213,18 +212,21 @@ class SimulatedWorld(Node):
 						self.xarm_joint_targets[:6] = self.xarm_control_joints
 						continue
 					# move the robots
-					for i in range(3): # individually move the OT2 DOF
-						ot2.apply_action(ArticulationAction(joint_positions=self.ot2_joint_targets[i:i+1], joint_indices=self.ot2_joint_indices[i:i+1]))
-						self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:3], self.ot2_joint_targets))))
+					for i in range(2): # individually move the OT2 DOF
+						ot2.apply_action(ArticulationAction(joint_positions=self.ot2_joint_targets[i:], joint_indices=self.ot2_joint_indices[i:]))
+						self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:2], self.ot2_joint_targets))))
 					xarm.set_joint_position_targets(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
 					#print(xarm_gripper_center.get_world_pose())
-					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:3], self.ot2_joint_targets))))
+					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:2], self.ot2_joint_targets))))
 					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:6], xarm.get_joint_positions()[0][10:], self.xarm_joint_targets))))
 					self.xarm_gripper_position_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_gripper_dim, data_offset=0), data=np.concatenate((xarm_gripper_center.get_world_pose()[0], xarm_gripper_center.get_world_pose()[1]))))
 					# mirror asset positions from real-world for non-stationary assets
-					for asset_type, _ in self.asset_pubs.items():
-						self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])
-						self.asset_pubs[asset_type].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[asset_type]))
+					for asset_type, _ in self.assets.items():
+						if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
+							self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])
+							self.asset_pubs[asset_type].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[asset_type]))
+						else:
+							self.asset_pubs[asset_type].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=np.concatenate((self.assets[asset_type][1].get_world_pose()[0], self.assets[asset_type][1].get_world_pose()[1]), axis=0)))
 		self.timeline.stop()
 		self.destroy_node()
 		simulation_app.close()

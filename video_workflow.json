@@ -1,0 +1,235 @@
+{
+  "name": "Video Workflow",
+  "version": "1.0.0",
+  "description": "Demo of Digital Twin and Orchestrator",
+  "global_config": {
+    "labware": {
+      "vial_rack": {
+        "type": "sdl1_8_wellplate_10ul",
+        "slot": 7
+      },
+      "tip_rack": {
+        "type": "opentrons_96_tiprack_1000ul",
+        "slot": 3
+      },
+      "reactor": {
+        "type": "sdl1_24_wellplate_2664ul",
+        "slot": 9
+      }
+    },
+    "instruments": {
+      "pipette": {
+        "type": "p1000_single_gen2",
+        "mount": "right"
+      }
+    },
+    "solutions": {
+      "electrolyte": {
+        "labware": "solution_rack",
+        "position": "A1"
+      },
+      "wash_solution": {
+        "labware": "solution_rack",
+        "position": "A2"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "0",
+      "type": "",
+      "label": "initialization",
+      "params": {
+        "duration_s": 5,
+        "sample_rate": 1,
+        "current_mA": 0,
+        "start_voltage_V": 0.0,
+        "end_voltage_V": 0.0,
+        "scan_rate_mV_s": 0,
+        "cycles": 1,
+        "start_freq_Hz": 100000,
+        "end_freq_Hz": 0.1,
+        "amplitude_mV": 10,
+        "arduino_control": {
+          "base0_temp": 25.0,
+          "pump0_ml": 0.0,
+          "ultrasonic0_ms": 0
+        },
+        "xarm_actions": [
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.248, -0.356, -0.4479, -0.0728, 0.73, -6.248],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          },
+          {
+            "action": "set_gripper_position",
+            "pos": 500,
+            "labware": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "1",
+      "type": "",
+      "label": "remove_vial_lid",
+      "params": {
+        "duration_s": 5,
+        "sample_rate": 1,
+        "current_mA": 0,
+        "start_voltage_V": 0.0,
+        "end_voltage_V": 0.0,
+        "scan_rate_mV_s": 0,
+        "cycles": 1,
+        "start_freq_Hz": 100000,
+        "end_freq_Hz": 0.1,
+        "amplitude_mV": 10,
+        "arduino_control": {
+          "base0_temp": 25.0,
+          "pump0_ml": 0.0,
+          "ultrasonic0_ms": 0
+        },
+        "xarm_actions": [
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.3418, 0.3917, -0.7875, -1.7118, 1.49, -5.1737],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          },
+          {
+            "action": "set_gripper_position",
+            "pos": 120,
+            "labware": "vial_rack_lid"
+          },
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.331, 0.2526, -0.7642, -1.6922, 1.49, -5.22],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          },
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.0112, 0.7404, -1.1663, -1.4415, 1.6218, -5.137156],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          },
+          {
+            "action": "set_gripper_position",
+            "pos": 600,
+            "labware": "vial_rack_lid"
+          },
+          {
+            "action": "set_servo_angle",
+            "angles": [-2.89533, 0.7404, -1.1663, -1.4415, 1.6218, -5.137156],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "2",
+      "type": "",
+      "label": "draw_from_vial",
+      "params": {
+        "duration_s": 5,
+        "sample_rate": 1,
+        "current_mA": 0,
+        "start_voltage_V": 0.0,
+        "end_voltage_V": 0.0,
+        "scan_rate_mV_s": 0,
+        "cycles": 1,
+        "start_freq_Hz": 100000,
+        "end_freq_Hz": 0.1,
+        "amplitude_mV": 10,
+        "arduino_control": {
+          "base0_temp": 25.0,
+          "pump0_ml": 0.0,
+          "ultrasonic0_ms": 0
+        },
+        "ot2_actions": [
+          {
+            "action": "move_to",
+            "labware": "vial_rack",
+            "well": "A1"
+          },
+          {
+            "action": "move_to",
+            "labware": "reactor",
+            "well": "A1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "3",
+      "type": "",
+      "label": "move_vial",
+      "params": {
+        "duration_s": 5,
+        "sample_rate": 1,
+        "current_mA": 0,
+        "start_voltage_V": 0.0,
+        "end_voltage_V": 0.0,
+        "scan_rate_mV_s": 0,
+        "cycles": 1,
+        "start_freq_Hz": 100000,
+        "end_freq_Hz": 0.1,
+        "amplitude_mV": 10,
+        "arduino_control": {
+          "base0_temp": 25.0,
+          "pump0_ml": 0.0,
+          "ultrasonic0_ms": 0
+        },
+        "xarm_actions": [
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.4113, 0.50624, -0.7824, -1.94, 1.455, -3.3892],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          },
+          {
+            "action": "set_gripper_position",
+            "pos": 120,
+            "labware": "vial_1"
+          },
+          {
+            "action": "set_servo_angle",
+            "angles": [-3.3861, 0.364798, -0.908, -1.7125, 1.45495, -3.70769],
+            "speed": 100,
+            "acc": 500,
+            "mvtime": 0,
+            "relative": false
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "0",
+      "target": "1"
+    },
+    {
+      "source": "1",
+      "target": "2"
+    },
+    {
+      "source": "2",
+      "target": "3"
+    }
+  ]
+}

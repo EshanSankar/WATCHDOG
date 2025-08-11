@@ -57,7 +57,7 @@ xarm.set_world_poses(positions=np.array([[2, 2, 0.0]]) / 1.0, orientations=np.ar
 ot2.set_world_pose(position=np.array([[0.0, 0.0, 0.0]]) / 1.0, orientation=np.array([[0.7071068, 0.7071068, 0, 0]]))
 simulation_app.update()
 xarm.set_joint_positions(positions=np.array([-2.87, -0.2179, -0.7428, -1.13558, 1.4665, -3.1397, 0.3, 0.3]), joint_indices=np.array([0, 1, 2, 3, 4, 5, 10, 11]))
-xarm.set_world_poses(positions=np.array([[-0.525, -0.33, 0.0]]) / 1.0, orientations=np.array([[0.7071068, 0, 0, -0.7071068]]))
+xarm.set_world_poses(positions=np.array([[-0.51, -0.33, 0.0]]) / 1.0, orientations=np.array([[0.7071068, 0, 0, -0.7071068]]))
 simulation_app.update()
 
 OT2_BASE_HEIGHT = 0.054
@@ -72,7 +72,7 @@ OT2_COORDS = {
 #  more negative = more front,	more negative = more left,    more negative = more down,   more negative = more down
 # [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
 # pipette dims: 80x130
-OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -3.0635, -0.0425, 0.065]}#"vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
+OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
 
 def LoadAssets(asset_path=ASSET_PATH):
 	assets = {}
@@ -121,10 +121,12 @@ class SimulatedWorld(Node):
 		self.ros_world = World(stage_units_in_meters=1.0)
 		self.ros_world.scene.add_default_ground_plane()
 		self.ot2_sub = self.create_subscription(JointState, "/sim_ot2/target_joint_states", self.ot2_cb, 10)
-		self.ot2_joint_targets = np.array([0.0, 0.0])
+		self.ot2_joint_targets = np.array([0.2, 0.18])
 		self.xarm_sub = self.create_subscription(JointState, "/sim_xarm/target_joint_states", self.xarm_cb, 10)
-		self.xarm_gripper_position_sub = self.create_subscription(Float32, "/orchestrator/gripper_position", self.xarm_gripper_position_cb, 10)
-		self.xarm_gripper_position = 500.0
+		self.xarm_gripper_value_sub = self.create_subscription(Float32, "/sim_xarm/gripper_value", self.xarm_gripper_value_cb, 10)
+		self.xarm_control_gripper_value_sub = self.create_subscription(Float32, "/orchestrator/gripper_value", self.xarm_control_gripper_value_cb, 10)
+		self.xarm_control_gripper_value = 0.3
+		self.xarm_gripper_position = np.array([1.2638885, 1.5571443, 0.5817807, 0.8983737, 0.20618224, -0.3784999, 0.08456606])
 		self.ot2_joints = ["PrismaticJointMiddleBar", "PrismaticJointPipetteHolder"]
 		self.ot2_joint_indices = np.array([0, 1])
 		self.xarm_joints = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "left_finger_joint", "right_finger_joint"]
@@ -135,7 +137,7 @@ class SimulatedWorld(Node):
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
 		self.xarm_gripper_position_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/gripper_position", 10)
-		self.xarm_control_joints = np.array([2.865, -0.0861, -0.4979, 4.3559, 1.3179, 1.021, 0.5, 0.5])
+		self.xarm_control_joints = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.3, 0.3])
 		self.xarm_control_sub = self.create_subscription(JointState, "/xarm/joint_states", self.xarm_control_cb, 10)
 		ot2.set_joint_positions(positions=self.ot2_joint_targets, joint_indices=self.ot2_joint_indices)
 		xarm.set_joint_positions(positions=self.xarm_joint_targets, joint_indices=self.xarm_joint_indices)
@@ -170,21 +172,22 @@ class SimulatedWorld(Node):
 			self.initialized_assets[asset_type] = True
 		else:
 			# Bug with FoundationPose causes it to track the cylindrical vials as constantly rotating along the z-axis
-			# Due to this limitation, will exclude orientation tracking for vials only
-			if asset_type == "vial_1" or asset_type == "vial_2":
+			# Also causes extreme noise when vial rack lid is moving
+			# Due to this limitation, will exclude orientation tracking for vials and vial rack lid
+			if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
 				self.asset_cmd_poses[asset_type][:3] = np.add(self.asset_initial_poses[asset_type][:3], np.subtract(tracked_pose[:3], self.asset_initial_tracked_poses[asset_type][:3]))
+				self.asset_cmd_poses[asset_type][2] = max(self.asset_cmd_poses[asset_type][2], OT2_BASE_HEIGHT) # to resolve FoundationPose issue
 			else:
 				self.asset_cmd_poses[asset_type] = np.add(self.asset_initial_poses[asset_type], np.subtract(tracked_pose, self.asset_initial_tracked_poses[asset_type]))
 	def ot2_cb(self, msg):
 		self.ot2_joint_targets = msg.position
 	def xarm_cb(self, msg):
-		# msg: [joint1, joint2, joint3, joint4, joint5, joint6, relative] OR [left_finger, right_finger]
-		if len(msg.position) == 7:
-			self.xarm_joint_targets = np.concatenate((np.array(msg.position)[:6] if msg.position[6] == 0.0 else np.add(np.array(msg.position)[:6], xarm.get_joint_positions()[0][:6]), self.xarm_joint_targets[6:]))
-		else:
-			self.xarm_joint_targets = np.concatenate((self.xarm_joint_targets[:6], np.array(msg.position)))
-	def xarm_gripper_position_cb(self, msg):
-		self.xarm_gripper_position = msg.data / 1000
+		# msg: [joint1, joint2, joint3, joint4, joint5, joint6, relative]
+		self.xarm_joint_targets = np.concatenate((np.array(msg.position)[:6] if msg.position[6] == 0.0 else np.add(np.array(msg.position)[:6], xarm.get_joint_positions()[0][:6]), self.xarm_joint_targets[6:]))
+	def xarm_gripper_value_cb(self, msg):
+		self.xarm_joint_targets[6:] = np.array([msg.data, msg.data]) # already /1000
+	def xarm_control_gripper_value_cb(self, msg):
+		self.xarm_control_gripper_value = msg.data/1000
 	def safety_cb(self, msg):
 		self.safety = int(msg.data)
 	def xarm_control_cb(self, msg):
@@ -205,7 +208,7 @@ class SimulatedWorld(Node):
 						reset_needed = False
 					if self.safety == -1:
 					#if self.c > 400 and self.c < 600: (for testing)
-						xarm.set_joint_positions(positions=np.concatenate((self.xarm_control_joints, np.array([self.xarm_gripper_position, self.xarm_gripper_position]))), joint_indices=self.xarm_joint_indices)
+						xarm.set_joint_positions(positions=np.concatenate((self.xarm_control_joints, np.array([self.xarm_control_gripper_value, self.xarm_control_gripper_value]))), joint_indices=self.xarm_joint_indices)
 						for asset_type, _ in self.assets.items():
 							self.assets[asset_type][1].set_world_pose(position=self.asset_cmd_poses[asset_type][:3], orientation=self.asset_cmd_poses[asset_type][3:])
 							self.asset_pubs[asset_type].publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.asset_dim, data_offset=0), data=self.asset_cmd_poses[asset_type]))

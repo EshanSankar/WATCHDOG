@@ -38,8 +38,8 @@ set_camera_view(
 )  # set camera view
 
 # loading assets
-ASSET_PATH = "file:///home/sdl1/isaacsim/sdl1-digital-twin/assets"
-WORKFLOW_PATH = "video_workflow.json"
+ASSET_PATH = "your_asset_path"
+WORKFLOW_PATH = "video_workflow.json" # replace with your workflow file
 
 # loading xarm
 add_reference_to_stage(usd_path=f"{ASSET_PATH}/xarm6_with_gripper.usd", prim_path="/World/xarm6_with_gripper") # robot
@@ -68,10 +68,6 @@ OT2_COORDS = {
 	7: [0.0, 0.18], 8: [0.13, 0.18], 9: [0.26, 0.18],
 	10: [0.0, 0.27], 11: [0.13, 0.27], 12: [0.26, 0.27]}
 
-# 'PrismaticJointMiddleBar', 'PrismaticJointPipetteHolder', 'PrismaticJointLeftPipette', 'PrismaticJointRightPipette']
-#  more negative = more front,	more negative = more left,    more negative = more down,   more negative = more down
-# [-0.08,0.2] #38 cm			[-0.19, 0.18] #42 cm					[-0.1, 0]					  [-0.1, 0]				
-# pipette dims: 80x130
 OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
 
 def LoadAssets(asset_path=ASSET_PATH):

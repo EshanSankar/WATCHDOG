@@ -11,6 +11,7 @@ from isaacsim.core.utils.stage import add_reference_to_stage, get_stage_units
 from isaacsim.core.utils.viewports import set_camera_view
 from isaacsim.storage.native import get_assets_root_path
 from isaacsim.core.utils.types import ArticulationAction
+from isaacsim.sensors.physics import ContactSensor, _sensor
 
 enable_extension("isaacsim.ros2.bridge")
 simulation_app.update()
@@ -59,6 +60,17 @@ simulation_app.update()
 xarm.set_joint_positions(positions=np.array([-2.87, -0.2179, -0.7428, -1.13558, 1.4665, -3.1397, 0.3, 0.3]), joint_indices=np.array([0, 1, 2, 3, 4, 5, 10, 11]))
 xarm.set_world_poses(positions=np.array([[-0.51, -0.33, 0.0]]) / 1.0, orientations=np.array([[0.7071068, 0, 0, -0.7071068]]))
 simulation_app.update()
+# loading contact sensor for arm
+xarm_sensor = ContactSensor(
+	prim_path="/World/xarm6_with_gripper",
+	name="contact_sensor",
+	frequency=60,
+	translation=np.array([0, 0, 0]),
+	min_threshold=0,
+	max_threshold=10000000,
+	radius=-1	
+)
+_xarm_contact_sensor_interface = _sensor.acquire_contact_sensor_interface()
 
 OT2_BASE_HEIGHT = 0.054
 OT2_OFFSETS = {"x": -0.12756, "y": -0.17065}
@@ -132,6 +144,7 @@ class SimulatedWorld(Node):
 		# /sim_robot/joint_states: [[joint1, ..., jointN], [joint1_goal, ..., jointN_goal]]
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
+		self.xarm_contact_pub = self.create_publisher(Float32, "/sim_xarm/contact_sensor_value", 10)
 		self.xarm_gripper_position_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/gripper_position", 10)
 		self.xarm_control_joints = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.3, 0.3])
 		self.xarm_control_sub = self.create_subscription(JointState, "/xarm/joint_states", self.xarm_control_cb, 10)
@@ -219,6 +232,9 @@ class SimulatedWorld(Node):
 					self.ot2_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.ot2_dim, data_offset=0), data=np.concatenate((ot2.get_joint_positions()[:2], self.ot2_joint_targets))))
 					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:6], xarm.get_joint_positions()[0][10:], self.xarm_joint_targets))))
 					self.xarm_gripper_position_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_gripper_dim, data_offset=0), data=np.concatenate((xarm_gripper_center.get_world_pose()[0], xarm_gripper_center.get_world_pose()[1]))))
+					# get contact sensor data for xarm
+					xarm_contact_value = _xarm_contact_sensor_interface.get_sensor_reading("/World/xarm6_with_gripper/contact_sensor", use_latest_data = True).value
+					self.xarm_contact_pub.publish(Float32(data=xarm_contact_value))
 					# mirror asset positions from real-world for non-stationary assets
 					for asset_type, _ in self.assets.items():
 						if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":

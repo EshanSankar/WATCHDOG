@@ -48,10 +48,12 @@ class SafetyChecker(Node):
         super().__init__("safety_checker")
         self.timer = self.create_timer(0.01, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
+        self.xarm_contact_sub = self.create_subscription(Float32, "/sim_xarm/contact_sensor_value", self.xarm_contact_cb, 10)
         self.xarm_gripper_sub = self.create_subscription(JointState, "/sim_xarm/gripper_position", self.xarm_gripper_cb, 10)
         self.ot2_sub = self.create_subscription(Float32MultiArray, "/sim_ot2/joint_states", self.ot2_cb, 10)
         self.xarm_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.xarm_targets = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.xarm_contact_value = 0.0
         self.xarm_gripper_position = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         self.ot2_joints = np.array([0.2, 0.18])
         self.ot2_targets = np.array([0.2, 0.18])
@@ -95,6 +97,8 @@ class SafetyChecker(Node):
     def xarm_cb(self, msg):
         self.xarm_joints = msg.data[:8]
         self.xarm_targets = msg.data[8:]
+    def xarm_contact_cb(self, msg):
+        self.xarm_contact_value = msg.data
     def xarm_gripper_cb(self, msg):
         self.xarm_gripper_position = msg.data
     def ot2_cb(self, msg):
@@ -105,7 +109,9 @@ class SafetyChecker(Node):
         self.xarm_control = 1 if msg.data == 1 else 0
     # Primary functions
     def xarm_collision(self):
-        # Check if xArm collides with the OT2, table surface, etc.
+        # Check if xArm collided with the OT2 or ground plane, etc.
+        if self.xarm_contact_value > 100000: # TODO
+            return True
         return False
     def check_safety(self):
         self.get_logger().info("RUNNING!")

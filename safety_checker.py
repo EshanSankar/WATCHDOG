@@ -46,7 +46,7 @@ def LoadAssets(asset_path=ASSET_PATH):
 class SafetyChecker(Node):
     def __init__(self):
         super().__init__("safety_checker")
-        self.timer = self.create_timer(0.01, self.check_safety)
+        self.timer = self.create_timer(0.005, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
         #self.xarm_contact_sub = self.create_subscription(Float32, "/sim_xarm/contact_sensor_value", self.xarm_contact_cb, 10)
         self.xarm_gripper_sub = self.create_subscription(JointState, "/sim_xarm/gripper_position", self.xarm_gripper_cb, 10)
@@ -60,17 +60,17 @@ class SafetyChecker(Node):
         self.ot2_pipette_position = np.array([0.0, 0.0])
         # STATUS INTS: 0: continue current action, 1: safe, -1: unsafe
         self.status_int = 1
+        self.resolution = 0
         self.status_pub = self.create_publisher(Int8, "/safety_checker/status_int", 10)
-        self.xarm_control = 0
-        self.xarm_control_sub = self.create_subscription(Int8, "/orchestrator/resolution", self.xarm_control_cb, 10)
+        self.resolution_sub = self.create_subscription(Int8, "/orchestrator/resolution", self.resolution_cb, 10)
         self.target_asset_ot2_sub = self.create_subscription(String, "/sim_ot2/target_asset", self.target_asset_ot2_cb, 10)
         self.target_asset_xarm_sub = self.create_subscription(String, "/sim_xarm/target_asset", self.target_asset_xarm_cb, 10)
-        self.XARM_JOINT_THRESHOLD = 0.05 # check if xArm is moving
+        self.XARM_JOINT_THRESHOLD = 0.02 # check if xArm is moving
         self.XARM_GRIPPER_THRESHOLD = 0.1 # xArm grasping position
-        self.XARM_GRIPPER_VALUE_THRESHOLD = 10
+        self.XARM_GRIPPER_VALUE_THRESHOLD = 0.08
         self.XARM_CARRY_THRESHOLD = 0.1 # xArm carrying
         self.OT2_JOINT_THRESHOLD = 0.02 # check if OT2 is moving
-        self.OT2_ASSET_POSITION_THRESHOLD = 0.1 # check assets are in correct spots
+        self.OT2_ASSET_POSITION_THRESHOLD = 0.2 # check assets are in correct spots
         self.OT2_ASSET_PIPETTE_THRESHOLD = 0.2 # check assets are in correct spots relative to pipette
         self.OT2_ASSET_OVERLAP_THRESHOLD = 0.2 # check assets are not blocking each other
         self.ASSET_ROTATION_THRESHOLD = 999 # check if assets are oriented properly
@@ -94,6 +94,8 @@ class SafetyChecker(Node):
         self.target_asset_xarm = msg.data
     def asset_cb(self, msg, asset_type):
         self.asset_poses[asset_type] = msg.data
+    def update_initial_asset_pos(self, msg, asset_type):
+        self.initial_asset_poses[asset_type] = np.copy(self.asset_poses[asset_type])
     def xarm_cb(self, msg):
         self.xarm_joints = msg.data[:8]
         self.xarm_targets = msg.data[8:]
@@ -105,8 +107,8 @@ class SafetyChecker(Node):
         self.ot2_joints = msg.data[:2]
         self.ot2_targets = msg.data[2:]
         self.ot2_pipette_position = np.array([(self.ot2_joints[0]+0.08)/0.737, (self.ot2_joints[1]+0.19)/0.881])
-    def xarm_control_cb(self, msg):
-        self.xarm_control = 1 if msg.data == 1 else 0
+    def resolution_cb(self, msg):
+        self.resolution = msg.data
     # Primary functions
     def xarm_collision(self):
         # Check if xArm collided with the OT2 or ground plane, etc.
@@ -114,21 +116,28 @@ class SafetyChecker(Node):
         #    return True
         return False
     def check_safety(self):
-        self.get_logger().info("RUNNING!")
-
-        # 0. If the state was unsafe but xArm was teleopped to resolve it
+        # 0. If the state was unsafe but we resolved it
+        print(f"CARRYING: {self.xarm_carrying}")
+        print(f"TARGET: {self.target_asset_xarm}")
         if self.status_int == -1:
-            if self.xarm_control == 1:
+            if self.resolution == 0:
+                self.get_logger().info("ERROR")
                 self.status_pub.publish(Int8(data=-1))
                 return
-            self.xarm_control = 0
+            if self.target_asset_xarm != "":
+                self.update_initial_asset_pos(self.target_asset_xarm)
+            if self.target_asset_ot2 != "":
+                self.update_initial_asset_pos(self.target_asset_ot2)
+            self.get_logger().info("RESOLVED ERROR")
             self.status_int = 1
-        self.get_logger().info("Checked xArm control")
+            self.status_pub.publish(Int8(data=1))
+        self.get_logger().info("Checked resolution")
         # 1. Check if xArm arm is moving (gripper doesn't count as moving)
         xarm_moving = False
         for i in range(len(self.xarm_joints) - 2): # Exclude gripper joints
             if abs(self.xarm_joints[i] - self.xarm_targets[i]) > self.XARM_JOINT_THRESHOLD:
                 xarm_moving = True
+                print("XARM IS NOW MOVING!!!!!!!!!!!!!")
                 break
         if xarm_moving:
             self.status_pub.publish(Int8(data=0))
@@ -138,9 +147,12 @@ class SafetyChecker(Node):
                 self.xarm_control = 1
                 return
             for asset_type, _ in self.assets.items():
-                if asset_type == self.target_asset_xarm:
-                    if self.xarm_carrying:
-                        continue
+                print(asset_type)
+                print(self.target_asset_xarm)
+                print(self.xarm_carrying)
+                if asset_type == self.target_asset_xarm and self.xarm_carrying:
+                    self.get_logger().info(f"Ignore {self.target_asset_xarm}")
+                    continue
                 # Check that remaining objects are in proper positions
                 if (np.linalg.norm(np.subtract(self.asset_poses[asset_type][:3], self.initial_asset_poses[asset_type][:3])) > self.OT2_ASSET_POSITION_THRESHOLD) or \
                     (np.linalg.norm(np.subtract(self.asset_poses[asset_type][3:], self.initial_asset_poses[asset_type][3:])) > self.ASSET_ROTATION_THRESHOLD):
@@ -153,7 +165,14 @@ class SafetyChecker(Node):
         # 2. Check if xArm is about to grip something
         if self.target_asset_xarm != "":
             # 2.1: Check if gripper is closing; can use [7] or [8]
-            if self.xarm_targets[7] > self.xarm_joints[7] - self.XARM_GRIPPER_VALUE_THRESHOLD:
+            print("Asset:")
+            print(self.target_asset_xarm)
+            # print("Target:")
+            # print(self.xarm_targets)
+            # print("Sim:")
+            # print(self.xarm_joints)
+            if self.xarm_targets[7] > self.xarm_joints[7] + self.XARM_GRIPPER_VALUE_THRESHOLD:
+                print("ABOUT TO GRIP")
                 self.status_pub.publish(Int8(data=0))
                 self.status_int = 0
                 # If gripper is coming from above, check if asset is blocked from above
@@ -199,7 +218,7 @@ class SafetyChecker(Node):
                 self.xarm_carrying = True                
                 return
              # 2.2: Check if gripper is releasing
-            elif self.xarm_targets[7] < self.xarm_joints[7] + self.XARM_GRIPPER_VALUE_THRESHOLD:
+            elif self.xarm_targets[7] < self.xarm_joints[7] - self.XARM_GRIPPER_VALUE_THRESHOLD:
                 # Update target object's initial pose
                 self.get_logger().info(f"Updated initial pose of target: {self.target_asset_xarm}")
                 self.initial_asset_poses[self.target_asset_xarm] = self.asset_poses[self.target_asset_xarm]

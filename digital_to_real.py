@@ -21,9 +21,9 @@ from rclpy.node import Node
 from std_msgs.msg import String, Float32MultiArray, MultiArrayDimension, MultiArrayLayout, Float32
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
-from pxr import Gf
-import omni.graph.core as og
+from pxr import Gf, UsdPhysics, UsdGeom
 import json
+import time
 
 # preparing the scene
 assets_root_path = get_assets_root_path()
@@ -35,11 +35,11 @@ if assets_root_path is None:
 world = World(stage_units_in_meters=1.0)
 world.scene.add_default_ground_plane()  # add ground plane
 set_camera_view(
-    eye=[5.0, 0.0, 1.5], target=[0.00, 0.00, 1.00], camera_prim_path="/OmniverseKit_Persp"
+    eye=[5.0, 0.0, 1.5], target=[-3.1, -1.2, 0.45], camera_prim_path="/OmniverseKit_Persp"
 )  # set camera view
 
 # loading assets
-ASSET_PATH = "your_asset_path"
+ASSET_PATH = "file:///home/sdl1/isaacsim/sdl1-digital-twin/assets"
 WORKFLOW_PATH = "video_workflow.json" # replace with your workflow file
 
 # loading xarm
@@ -51,26 +51,45 @@ xarm_gripper_center = SingleXFormPrim("/World/xarm6_with_gripper/xarm6_with_grip
 simulation_app.update()
 world.reset()
 simulation_app.update()
+#UsdPhysics.CollisionAPI.Apply(omni.usd.get_context().get_stage().GetPrimAtPath("/World/xarm6_with_gripper"))
+#simulation_app.update()
+#xarm_contact_report = PhysxSchema.PhysxContactReportAPI.Apply()
+#xarm_contact_report.CreateThresholdAttr(0.0)
 ot2 = SingleArticulation(prim_path="/World/ot2", name="ot2")
 ot2.initialize()
 simulation_app.update()
 xarm.set_world_poses(positions=np.array([[2, 2, 0.0]]) / 1.0, orientations=np.array([[-0.4480736, 0, 0, 0.8939967]]))
-ot2.set_world_pose(position=np.array([[0.0, 0.0, 0.0]]) / 1.0, orientation=np.array([[0.7071068, 0.7071068, 0, 0]]))
+ot2.set_world_pose(position=np.array([[-3.0, 0.0, 0.0]]) / 1.0, orientation=np.array([[0.7071068, 0.7071068, 0, 0]]))
 simulation_app.update()
+#ot2.set_joint_positions(positions=np.array([0.2, 0.18]), joint_indices=np.array([0, 1]))
 xarm.set_joint_positions(positions=np.array([-2.87, -0.2179, -0.7428, -1.13558, 1.4665, -3.1397, 0.3, 0.3]), joint_indices=np.array([0, 1, 2, 3, 4, 5, 10, 11]))
-xarm.set_world_poses(positions=np.array([[-0.51, -0.33, 0.0]]) / 1.0, orientations=np.array([[0.7071068, 0, 0, -0.7071068]]))
+xarm.set_world_poses(positions=np.array([[-0.48539 - 3, -0.3296, 0.0]]) / 1.0, orientations=np.array([[0.7071068, 0, 0, -0.7071068]]))
 simulation_app.update()
-# loading contact sensor for arm
-xarm_sensor = ContactSensor(
-	prim_path="/World/xarm6_with_gripper",
-	name="contact_sensor",
-	frequency=60,
-	translation=np.array([0, 0, 0]),
-	min_threshold=0,
-	max_threshold=10000000,
-	radius=-1	
-)
-_xarm_contact_sensor_interface = _sensor.acquire_contact_sensor_interface()
+
+# stage = omni.usd.get_context().get_stage()
+# ot2_prims = ["/World/ot2/body/mesh"]
+# xarm_prims = ["/World/xarm6_with_gripper/xarm6_with_gripper/link2/collisions",
+# 			  "/World/xarm6_with_gripper/xarm6_with_gripper/link3/collisions",
+# 			  "/World/xarm6_with_gripper/xarm6_with_gripper/link4/collisions",
+# 			  "/World/xarm6_with_gripper/xarm6_with_gripper/link5/collisions"]
+# for prim in stage.Traverse():
+# 	if prim.GetPath().pathString in xarm_prims or prim.GetPath().pathString in ot2_prims:
+# 		UsdPhysics.CollisionAPI.Apply(prim)
+# 		print(f"Added collider to {prim}")
+# 		simulation_app.update()
+
+# #loading contact sensor for arm
+# xarm_link2_sensor = ContactSensor(
+# 	prim_path="/World/xarm6_with_gripper/xarm6_with_gripper/link2/collisions/contact_sensor",
+# 	name="contact_sensor",
+# 	frequency=60,
+# 	translation=np.array([0, 0, 0]),
+# 	min_threshold=0,
+# 	max_threshold=10000000,
+# 	radius=-1	
+# )
+# xarm_link2_contact_sensor_interface = _sensor.acquire_contact_sensor_interface()
+# simulation_app.update()
 
 OT2_BASE_HEIGHT = 0.054
 OT2_OFFSETS = {"x": -0.12756, "y": -0.17065}
@@ -89,27 +108,41 @@ def LoadAssets(asset_path=ASSET_PATH):
 		for asset_type, asset in workflow["global_config"]["labware"].items():
 			# Below is the default. For now, manually specify paths since asset names aren't yet standardized
 			#add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/{asset_type}.usda", prim_path=f"/World/{asset_type}")
-			if asset_type == "tip_rack":
-				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/tiprack_inst.usda", prim_path=f"/World/{asset_type}")
-			elif asset_type == "reactor":
-				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/tiprack_inst.usda", prim_path=f"/World/{asset_type}")
-			elif asset_type == "vial_rack":
-				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/vial_rack.usdc", prim_path=f"/World/{asset_type}")
-			assets[asset_type] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
-			# Will also need to specify default rotation per asset as those are also not standardized
-			assets[asset_type][1].set_world_pose(position=np.array([[
-				OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"],
-				OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"],
-				OT2_BASE_HEIGHT]]) / 1.0, orientation=np.array([1, 0, 0, 0])) # get_stage_units() -> 1.0
-			if asset_type == "tip_rack" or asset_type == "reactor":
-				assets[asset_type][1].set_world_pose(orientation=np.array([0.7071068, 0, 0, -0.7071068]))
 			# Because of non-standard assets, some assets will have their origins at their (0,0) instead of the center of the asset
 			# Since the above calculation is done w/ r.t. the center of the asset, will need to offset
-			if asset_type == "vial_rack":
+			if asset_type == "tip_rack":
+				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/tiprack_inst.usda", prim_path=f"/World/{asset_type}")
+				assets[asset_type] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
 				assets[asset_type][1].set_world_pose(position=np.array([[
-				OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 0.0635,
-				OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] - 0.0425,
-				OT2_BASE_HEIGHT]]))
+					OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 3,
+					OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"],
+					OT2_BASE_HEIGHT]]) / 1.0, orientation=np.array([0.7071068, 0, 0, -0.7071068]))
+			elif asset_type == "reactor":
+				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/standardReactor.usd", prim_path=f"/World/{asset_type}")
+				assets[asset_type] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
+				assets[asset_type][1].set_world_pose(position=np.array([[
+					OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] + 0.07 - 0.13367 + 10,
+					OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] + 0.0427,
+					OT2_BASE_HEIGHT - 0.02]]), orientation=np.array([0.7071068, 0.7071068, 0, 0]))
+				time.sleep(2)
+				assets[asset_type][1].set_world_pose(position=np.array([[
+					OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] + 0.07 - 0.13367 - 3,
+					OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] + 0.0427,
+					OT2_BASE_HEIGHT - 0.02]]), orientation=np.array([0.7071068, 0.7071068, 0, 0]))
+			elif asset_type == "vial_rack":
+				add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/8VialRack.usd", prim_path=f"/World/{asset_type}")
+				assets[asset_type] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
+				assets[asset_type][1].set_world_pose(position=np.array([[
+					OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 0.0635 - 3,
+					OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] - 0.0425 + 0.085,
+					OT2_BASE_HEIGHT]]), orientation=np.array([0.7071068, 0.7071068, 0, 0]))
+			else:
+				# Will also need to specify default rotation per asset as those are also not standardized
+				assets[asset_type] = [asset["slot"], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
+				assets[asset_type][1].set_world_pose(position=np.array([[
+					OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 3,
+					OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] - 3,
+					OT2_BASE_HEIGHT]]) / 1.0, orientation=np.array([1, 0, 0, 0])) # get_stage_units() -> 1.0
 	for asset_type, offset in OTHER_ASSETS.items():
 		if asset_type == "vial_1" or asset_type == "vial_2":
 			add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/vial_20ml_inst.usda", prim_path=f"/World/{asset_type}")
@@ -117,7 +150,7 @@ def LoadAssets(asset_path=ASSET_PATH):
 			add_reference_to_stage(usd_path=f"{asset_path}/{asset_type}/vial_rack_lid.usda", prim_path=f"/World/{asset_type}")
 		assets[asset_type] = [offset[0], SingleXFormPrim(prim_path=f"/World/{asset_type}", name=asset_type)]
 		assets[asset_type][1].set_world_pose(position=np.array([[
-			OT2_COORDS[offset[0]][0] + OT2_OFFSETS["x"] + offset[1],
+			OT2_COORDS[offset[0]][0] + OT2_OFFSETS["x"] + offset[1] - 3,
 			OT2_COORDS[offset[0]][1] + OT2_OFFSETS["y"] + offset[2],
 			OT2_BASE_HEIGHT + offset[3]]]) / 1.0)
 	return assets
@@ -140,11 +173,11 @@ class SimulatedWorld(Node):
 		self.xarm_joints = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "left_finger_joint", "right_finger_joint"]
 		self.xarm_joint_indices = np.array([0, 1, 2, 3, 4, 5, 10, 11])
 		# gripper joint limits [0, 0.85]; real is [0, 850]
-		self.xarm_joint_targets = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.3, 0.3])
+		self.xarm_joint_targets = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.7, 0.7])
 		# /sim_robot/joint_states: [[joint1, ..., jointN], [joint1_goal, ..., jointN_goal]]
 		self.ot2_pub = self.create_publisher(Float32MultiArray, "/sim_ot2/joint_states", 10)
 		self.xarm_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/joint_states", 10)
-		self.xarm_contact_pub = self.create_publisher(Float32, "/sim_xarm/contact_sensor_value", 10)
+		#self.xarm_contact_pub = self.create_publisher(Float32, "/sim_xarm/contact_sensor_value", 10)
 		self.xarm_gripper_position_pub = self.create_publisher(Float32MultiArray, "/sim_xarm/gripper_position", 10)
 		self.xarm_control_joints = np.array([3.285, 0.244, -0.6925, 4.835, 1.604, 1.0739, 0.3, 0.3])
 		self.xarm_control_sub = self.create_subscription(JointState, "/xarm/joint_states", self.xarm_control_cb, 10)
@@ -194,7 +227,7 @@ class SimulatedWorld(Node):
 		# msg: [joint1, joint2, joint3, joint4, joint5, joint6, relative]
 		self.xarm_joint_targets = np.concatenate((np.array(msg.position)[:6] if msg.position[6] == 0.0 else np.add(np.array(msg.position)[:6], xarm.get_joint_positions()[0][:6]), self.xarm_joint_targets[6:]))
 	def xarm_gripper_value_cb(self, msg):
-		self.xarm_joint_targets[6:] = np.array([msg.data, msg.data]) # already /1000
+		self.xarm_joint_targets[6:] = np.array([msg.data, msg.data]) # already scaled
 	def xarm_control_gripper_value_cb(self, msg):
 		self.xarm_control_gripper_value = msg.data/1000
 	def safety_cb(self, msg):
@@ -233,8 +266,8 @@ class SimulatedWorld(Node):
 					self.xarm_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_dim, data_offset=0), data=np.concatenate((xarm.get_joint_positions()[0][:6], xarm.get_joint_positions()[0][10:], self.xarm_joint_targets))))
 					self.xarm_gripper_position_pub.publish(Float32MultiArray(layout=MultiArrayLayout(dim=self.xarm_gripper_dim, data_offset=0), data=np.concatenate((xarm_gripper_center.get_world_pose()[0], xarm_gripper_center.get_world_pose()[1]))))
 					# get contact sensor data for xarm
-					xarm_contact_value = _xarm_contact_sensor_interface.get_sensor_reading("/World/xarm6_with_gripper/contact_sensor", use_latest_data = True).value
-					self.xarm_contact_pub.publish(Float32(data=xarm_contact_value))
+					#xarm_contact_value = xarm_link2_contact_sensor_interface.get_sensor_reading("/World/xarm6_with_gripper/xarm6_with_gripper/link2/collisions/contact_sensor", use_latest_data = True).value
+					#self.xarm_contact_pub.publish(Float32(data=xarm_contact_value))
 					# mirror asset positions from real-world for non-stationary assets
 					for asset_type, _ in self.assets.items():
 						if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":

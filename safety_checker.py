@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Float32MultiArray, Int8
+from std_msgs.msg import String, Float32MultiArray, Int8, Float32
 from sensor_msgs.msg import JointState
 import numpy as np
 import json
@@ -22,7 +22,7 @@ def LoadAssets(asset_path=ASSET_PATH):
 		workflow = json.load(f)
 		for asset_type, asset in workflow["global_config"]["labware"].items():
 			assets[asset_type] = [asset["slot"], np.array([
-                    OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"],
+                    OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 3,
                     OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"],
                     OT2_BASE_HEIGHT,
                     1, 0, 0, 0])]
@@ -32,12 +32,12 @@ def LoadAssets(asset_path=ASSET_PATH):
 			# Since the above calculation is done w/ r.t. the center of the asset, will need to offset
 			if asset_type == "vial_rack":
 				assets[asset_type][1][:3] = np.array([
-				OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 0.0635,
+				OT2_COORDS[asset["slot"]][0] + OT2_OFFSETS["x"] - 0.0635 - 3,
 				OT2_COORDS[asset["slot"]][1] + OT2_OFFSETS["y"] - 0.0425,
 				OT2_BASE_HEIGHT])
 	for asset_type, offset in OTHER_ASSETS.items():
 		assets[asset_type] = [offset[0], np.array([
-               OT2_COORDS[offset[0]][0] + OT2_OFFSETS["x"] + offset[1],
+               OT2_COORDS[offset[0]][0] + OT2_OFFSETS["x"] + offset[1] - 3,
                OT2_COORDS[offset[0]][1] + OT2_OFFSETS["y"] + offset[2],
                OT2_BASE_HEIGHT + offset[3],
                1, 0, 0, 0])]
@@ -48,7 +48,7 @@ class SafetyChecker(Node):
         super().__init__("safety_checker")
         self.timer = self.create_timer(0.01, self.check_safety)
         self.xarm_sub = self.create_subscription(Float32MultiArray, "/sim_xarm/joint_states", self.xarm_cb, 10)
-        self.xarm_contact_sub = self.create_subscription(Float32, "/sim_xarm/contact_sensor_value", self.xarm_contact_cb, 10)
+        #self.xarm_contact_sub = self.create_subscription(Float32, "/sim_xarm/contact_sensor_value", self.xarm_contact_cb, 10)
         self.xarm_gripper_sub = self.create_subscription(JointState, "/sim_xarm/gripper_position", self.xarm_gripper_cb, 10)
         self.ot2_sub = self.create_subscription(Float32MultiArray, "/sim_ot2/joint_states", self.ot2_cb, 10)
         self.xarm_joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -110,8 +110,8 @@ class SafetyChecker(Node):
     # Primary functions
     def xarm_collision(self):
         # Check if xArm collided with the OT2 or ground plane, etc.
-        if self.xarm_contact_value > 100000: # TODO
-            return True
+        #if self.xarm_contact_value > 100000: # TODO
+        #    return True
         return False
     def check_safety(self):
         self.get_logger().info("RUNNING!")
@@ -153,7 +153,7 @@ class SafetyChecker(Node):
         # 2. Check if xArm is about to grip something
         if self.target_asset_xarm != "":
             # 2.1: Check if gripper is closing; can use [7] or [8]
-            if self.xarm_targets[7] < self.xarm_joints[7] - self.XARM_GRIPPER_VALUE_THRESHOLD:
+            if self.xarm_targets[7] > self.xarm_joints[7] - self.XARM_GRIPPER_VALUE_THRESHOLD:
                 self.status_pub.publish(Int8(data=0))
                 self.status_int = 0
                 # If gripper is coming from above, check if asset is blocked from above
@@ -199,7 +199,7 @@ class SafetyChecker(Node):
                 self.xarm_carrying = True                
                 return
              # 2.2: Check if gripper is releasing
-            elif self.xarm_targets[7] > self.xarm_joints[7] + self.XARM_GRIPPER_VALUE_THRESHOLD:
+            elif self.xarm_targets[7] < self.xarm_joints[7] + self.XARM_GRIPPER_VALUE_THRESHOLD:
                 # Update target object's initial pose
                 self.get_logger().info(f"Updated initial pose of target: {self.target_asset_xarm}")
                 self.initial_asset_poses[self.target_asset_xarm] = self.asset_poses[self.target_asset_xarm]

@@ -1,7 +1,7 @@
 # WATCHDOG: Modular Real-Time Digital Twins for Intelligent Fault Monitoring & Handling in Robotics Workflows
 This project ties in with the [Catalyst-OT2-xArm chemistry workflow orchestrator system](https://github.com/EshanSankar/catalyst-OT2-xArm).
 
-This README is activately being updated. For an overview of this project, please refer below and to Catalyst-OT2-xArm.
+WATCHDOG is still in-development! We plan to further extend and robustify the project. [Here](https://youtu.be/ITWlv5tZeRk?si=Afx3l9Zx5sUh1u4K) is a video demonstration of the project. Please refer to Catalyst-OT2-xArm for more information.
 
 ## Overview
 WATCHDOG integrates with a self-driving lab (SDL) chemistry workflow orchestrator, which uses Opentrons OT2 and UFACTORY xArm6 robots, to provide real-time safety validation and control.

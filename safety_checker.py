@@ -4,6 +4,7 @@ from std_msgs.msg import String, Float32MultiArray, Int8, Float32
 from sensor_msgs.msg import JointState
 import numpy as np
 import json
+from utils import Assets
 
 ASSET_PATH = "file:///home/sdl1/isaacsim/sdl1-digital-twin/assets"
 WORKFLOW_PATH = "video_workflow.json"
@@ -74,7 +75,8 @@ class SafetyChecker(Node):
         self.OT2_ASSET_PIPETTE_THRESHOLD = 0.2 # check assets are in correct spots relative to pipette
         self.OT2_ASSET_OVERLAP_THRESHOLD = 0.2 # check assets are not blocking each other
         self.ASSET_ROTATION_THRESHOLD = 999 # check if assets are oriented properly
-        self.assets = LoadAssets()
+        #self.assets = LoadAssets()
+        self.assets = Assets(workflow_path=WORKFLOW_PATH) #TODO
         self.asset_subs = {}
         self.asset_poses = {}
         self.initial_asset_poses = {}

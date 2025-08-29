@@ -24,6 +24,7 @@ from sensor_msgs.msg import JointState
 from pxr import Gf, UsdPhysics, UsdGeom
 import json
 import time
+from utils import Assets
 
 # preparing the scene
 assets_root_path = get_assets_root_path()
@@ -91,15 +92,9 @@ simulation_app.update()
 # xarm_link2_contact_sensor_interface = _sensor.acquire_contact_sensor_interface()
 # simulation_app.update()
 
-OT2_BASE_HEIGHT = 0.054
-OT2_OFFSETS = {"x": -0.12756, "y": -0.17065}
-OT2_COORDS = {
-	1: [0.0, 0.0], 2: [0.13, 0.0], 3: [0.26, 0.0],
-	4: [0.0, 0.09], 5: [0.13, 0.09], 6: [0.26, 0.09],
-	7: [0.0, 0.18], 8: [0.13, 0.18], 9: [0.26, 0.18],
-	10: [0.0, 0.27], 11: [0.13, 0.27], 12: [0.26, 0.27]}
+#OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
 
-OTHER_ASSETS = {"vial_1": [7, -0.046, 0.022, 0.037], "vial_2": [7, 0.046, -0.022, 0.037], "vial_rack_lid": [7, -0.0635, -0.0425, 0.065]}
+OT2_OFFSETS = {"x": -0.12756, "y": -0.17065, "z": 0.054}
 
 def LoadAssets(asset_path=ASSET_PATH):
 	assets = {}
@@ -154,6 +149,13 @@ def LoadAssets(asset_path=ASSET_PATH):
 			OT2_BASE_HEIGHT + offset[3]]]) / 1.0)
 	return assets
 
+# Better asset loader function
+def initialize_simulated_assets(assets):
+	for asset in assets:
+		add_reference_to_stage(usd_path=f"{asset.asset_path}", prim_path=f"/World/{asset.type}")
+		asset.simulated_asset = SingleXFormPrim(prim_path=f"/World/{asset.type}", name=asset.type)
+		asset.simulated_asset.set_world_pose(position=asset.initial_position, orientation = asset.initial_orientation)
+
 class SimulatedWorld(Node):
 	def __init__(self):
 		super().__init__("pose_subscriber")
@@ -185,22 +187,24 @@ class SimulatedWorld(Node):
 		self.safety = 1
 		self.safety_sub = self.create_subscription(String, "/safety_checker/status_int", self.safety_cb, 10)
 		# object pose subscribers
-		self.assets = LoadAssets()
+		self.assets = Assets(workflow_path=WORKFLOW_PATH) #TODO
 		simulation_app.update()
-		self.asset_subs = {}
-		self.asset_pubs = {}
-		self.asset_cmd_poses = {}
-		self.asset_initial_poses = {}
-		self.asset_initial_tracked_poses = {}
+		initialize_simulated_assets(self.assets)
 		self.initialized_assets = {}
-		for asset_type, asset in self.assets.items():
-			# will manually skip some stationary assets
-			if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
-				self.asset_subs[asset_type] = self.create_subscription(PoseStamped, f"/asset_position_{asset_type}", lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
-				self.asset_cmd_poses[asset_type] = np.concatenate((asset[1].get_world_pose()[0], asset[1].get_world_pose()[1]), axis=0)
-				self.asset_initial_poses[asset_type] = self.asset_cmd_poses[asset_type].copy()
+		for asset_type, asset in self.assets.asset_dict.items():
+			if not asset.stationary:
+				asset.sub = self.create_subscription(PoseStamped, f"/asset_position_{asset_type}", lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
+				asset.cmd_pose = np.concatenate((asset.simulated_asset.get_world_pose()[0], asset.simulated_asset.get_world_pose()[1]), axis=0)
+				asset.initial_pose = asset.cmd_pose.copy()
 				self.initialized_assets[asset_type] = False
-			self.asset_pubs[asset_type] = self.create_publisher(Float32MultiArray, f"/sim_{asset_type}/pose", 10)
+			asset.pub = self.create_publisher(Float32MultiArray, f"/sim_{asset_type}/pose", 10)
+			# # will manually skip some stationary assets
+			# if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
+			# 	self.asset_subs[asset_type] = self.create_subscription(PoseStamped, f"/asset_position_{asset_type}", lambda msg, asset_type=asset_type: self.asset_cb(msg, asset_type), 10)
+			# 	self.asset_cmd_poses[asset_type] = np.concatenate((asset[1].get_world_pose()[0], asset[1].get_world_pose()[1]), axis=0)
+			# 	self.asset_initial_poses[asset_type] = self.asset_cmd_poses[asset_type].copy()
+			# 	self.initialized_assets[asset_type] = False
+			# self.asset_pubs[asset_type] = self.create_publisher(Float32MultiArray, f"/sim_{asset_type}/pose", 10)
 	def asset_cb(self, msg, asset_type):
 		tracked_pose = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z, msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z])
 		if not self.initialized_assets[asset_type]:
@@ -212,7 +216,7 @@ class SimulatedWorld(Node):
 			# Due to this limitation, will exclude orientation tracking for vials and vial rack lid
 			if asset_type == "vial_1" or asset_type == "vial_2" or asset_type == "vial_rack_lid":
 				self.asset_cmd_poses[asset_type][:3] = np.add(self.asset_initial_poses[asset_type][:3], np.subtract(tracked_pose[:3], self.asset_initial_tracked_poses[asset_type][:3]))
-				self.asset_cmd_poses[asset_type][2] = max(self.asset_cmd_poses[asset_type][2], OT2_BASE_HEIGHT) # to resolve FoundationPose issue
+				self.asset_cmd_poses[asset_type][2] = max(self.asset_cmd_poses[asset_type][2], OT2_OFFSETS["z"]) # to resolve FoundationPose issue
 			else:
 				self.asset_cmd_poses[asset_type] = np.add(self.asset_initial_poses[asset_type], np.subtract(tracked_pose, self.asset_initial_tracked_poses[asset_type]))
 	def ot2_cb(self, msg):
